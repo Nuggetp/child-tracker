@@ -1,0 +1,41 @@
+<!-- PARENT DASHBOARD VIEW -->
+        <div id="view-parent-dash" class="hidden slide-in space-y-4">
+            <div class="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-6 rounded-3xl shadow-lg mb-6">
+                <h2 class="text-2xl font-bold mb-1">Child's Status</h2>
+                <p class="text-emerald-100 text-sm">Monitoring daily logs and activities</p>
+            </div>
+            
+            <div class="flex justify-between items-center px-2">
+                <h3 class="font-bold text-gray-700">Recent Logs</h3>
+                <span class="text-xs text-gray-500" id="parent-logs-count">0 logs found</span>
+            </div>
+
+            <div id="parent-logs-container" class="space-y-4">
+                <!-- Populated dynamically -->
+                <div class="text-center p-8 text-gray-400">Loading logs...</div>
+            </div>
+
+            <section class="bg-white p-5 rounded-2xl shadow-sm">
+                <h3 class="font-bold text-gray-700 mb-4">Child's Schedule</h3>
+                <div class="flex items-center justify-between mb-4">
+                    <button id="parent-calendar-prev" type="button" class="p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Previous month">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <h4 id="parent-calendar-month" class="text-lg font-bold text-gray-800" aria-live="polite"></h4>
+                    <button id="parent-calendar-next" type="button" class="p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Next month">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="month-calendar">
+                    <div class="month-calendar-weekdays" aria-hidden="true">
+                        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
+                        <span>Thu</span><span>Fri</span><span>Sat</span>
+                    </div>
+                    <div id="parent-calendar-grid" class="month-calendar-grid"></div>
+                </div>
+                <section class="mt-4 border-t border-gray-100 pt-4" aria-live="polite">
+                    <h4 id="parent-calendar-day-heading" class="font-semibold text-gray-700 mb-3"></h4>
+                    <div id="parent-calendar-day-schedule" class="space-y-2"></div>
+                </section>
+            </section>
+        </div>

@@ -1,0 +1,269 @@
+<!-- CHILD DASHBOARD VIEW -->
+        <div id="view-child-dash" class="hidden space-y-4 slide-in pt-4">
+            <button id="btn-goto-log" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-6 rounded-3xl shadow-lg flex flex-col items-center justify-center gap-3 transition-transform active:scale-95">
+                <i class="fas fa-edit text-3xl"></i>
+                <span id="btn-goto-log-label" class="text-lg font-bold">Log Today's Info</span>
+            </button>
+            <div class="grid grid-cols-2 gap-4">
+                <button id="btn-goto-calendar" class="bg-white p-6 rounded-3xl shadow flex flex-col items-center justify-center gap-3 text-slate-700 hover:bg-slate-50 transition-transform active:scale-95">
+                    <i class="fas fa-calendar-check text-2xl text-blue-500"></i>
+                    <span class="font-semibold text-sm">Calendar & Tasks</span>
+                </button>
+                <button id="btn-goto-settings" class="bg-white p-6 rounded-3xl shadow flex flex-col items-center justify-center gap-3 text-slate-700 hover:bg-slate-50 transition-transform active:scale-95">
+                    <i class="fas fa-cog text-2xl text-gray-500"></i>
+                    <span class="font-semibold text-sm">Settings</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- LOG TODAY'S INFO VIEW -->
+        <div id="view-log-info" class="hidden slide-in space-y-6">
+            <form id="log-form" class="space-y-6">
+                <!-- Mood -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm">
+                    <label class="block text-sm font-semibold text-gray-700 mb-3">How is your mood today?</label>
+                    <div class="flex justify-between" id="mood-selector">
+                        <button type="button" class="mood-btn text-3xl p-2 border-2 border-transparent rounded-xl transition-all" data-val="Terrible">😫</button>
+                        <button type="button" class="mood-btn text-3xl p-2 border-2 border-transparent rounded-xl transition-all" data-val="Bad">😕</button>
+                        <button type="button" class="mood-btn text-3xl p-2 border-2 border-transparent rounded-xl transition-all" data-val="Okay">😐</button>
+                        <button type="button" class="mood-btn text-3xl p-2 border-2 border-transparent rounded-xl transition-all" data-val="Good">🙂</button>
+                        <button type="button" class="mood-btn text-3xl p-2 border-2 border-transparent rounded-xl transition-all" data-val="Great">😄</button>
+                    </div>
+                </div>
+
+                <!-- Sliders -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm space-y-5">
+                    <div>
+                        <label class="flex justify-between text-sm font-semibold text-gray-700 mb-2">
+                            <span>How free are you today?</span>
+                            <span id="free-val" class="text-indigo-600 font-bold">5/10</span>
+                        </label>
+                        <input type="range" id="input-free" min="0" max="10" value="5">
+                        <div class="flex justify-between text-xs text-gray-400 mt-1"><span>Busy</span><span>Very Free</span></div>
+                    </div>
+                    <div>
+                        <label class="flex justify-between text-sm font-semibold text-gray-700 mb-2">
+                            <span>Stress Level</span>
+                            <span id="stress-val" class="text-red-500 font-bold">5/10</span>
+                        </label>
+                        <input type="range" id="input-stress" min="0" max="10" value="5">
+                        <div class="flex justify-between text-xs text-gray-400 mt-1"><span>Relaxed</span><span>Stressed</span></div>
+                    </div>
+                </div>
+
+                <!-- Health Metrics -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Screen Time (hrs)</label>
+                        <input type="number" id="input-screen" step="0.5" min="0" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. 2.5">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Sleep Time</label>
+                        <input type="text" id="input-sleep" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. 8 hrs">
+                    </div>
+                </div>
+
+                <!-- Test Score Entry -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3 border-b pb-2"><i class="fas fa-graduation-cap text-indigo-500 mr-2"></i>Test Score Entry (Optional)</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Subject</label>
+                            <select id="input-test-subject" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                                <option value="">Select a subject...</option>
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Score</label>
+                                <input type="text" id="input-test-score" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. 85/100">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Result</label>
+                                <input type="text" id="input-test-result" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Pass / A">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Text Journals -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Most interesting thing to me right now</label>
+                        <textarea id="input-interesting" rows="2" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none" placeholder="What's on your mind?"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">One thing that happened today</label>
+                        <textarea id="input-happened" rows="2" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none" placeholder="Share a moment..."></textarea>
+                    </div>
+                </div>
+
+                <button id="btn-save-log" type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-colors">
+                    Save Today's Log
+                </button>
+            </form>
+        </div>
+
+        <!-- SETTINGS VIEW (Manage Subjects) -->
+        <div id="view-settings" class="hidden slide-in">
+            <div class="bg-white p-5 rounded-2xl shadow-sm">
+                <h2 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-book text-indigo-500 mr-2"></i>Manage Subjects</h2>
+                <p class="text-sm text-gray-500 mb-4">Add the subjects you are currently taking so you can log test scores for them.</p>
+                
+                <div class="flex gap-2 mb-6">
+                    <input type="text" id="new-subject-input" class="flex-1 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Math, History">
+                    <button id="btn-add-subject" class="bg-indigo-600 text-white px-5 rounded-xl font-semibold hover:bg-indigo-700"><i class="fas fa-plus"></i></button>
+                </div>
+
+                <ul id="subjects-list" class="space-y-2">
+                    <!-- Populated dynamically -->
+                </ul>
+            </div>
+
+            <!-- Favorite Teams -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm mt-4">
+                <h2 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-futbol text-purple-500 mr-2"></i>Favorite Teams & Auto-Sync</h2>
+                <p class="text-sm text-gray-500 mb-4">Select your teams to automatically sync their upcoming matches and F1 races to your calendar.</p>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Premier League</label>
+                        <select id="input-pl-team" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-sm bg-white">
+                            <option value="">Select PL Team...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">La Liga</label>
+                        <select id="input-laliga-team" class="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-sm bg-white">
+                            <option value="">Select La Liga Team...</option>
+                        </select>
+                    </div>
+                    <button id="btn-save-teams" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:from-purple-700 hover:to-indigo-700 transition-colors text-sm shadow-md flex items-center justify-center gap-2">
+                        <i class="fas fa-cloud-download-alt"></i> Save & Sync Schedules
+                    </button>
+                    <p class="text-xs text-gray-500">
+                        Fixture data:
+                        <a class="text-indigo-600 underline" href="https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams" target="_blank" rel="noreferrer">ESPN football schedules</a>
+                        and
+                        <a class="text-indigo-600 underline" href="https://github.com/jolpica/jolpica-f1" target="_blank" rel="noreferrer">Jolpica F1 API</a>.
+                        Run <code>node server.js</code> and open this app from port 4173 to sync.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- CALENDAR & TASKS VIEW -->
+        <div id="view-calendar" class="hidden slide-in space-y-6">
+            
+            <!-- Calendar -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <button id="calendar-prev" type="button" class="p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Previous month">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <h2 id="calendar-month" class="text-lg font-bold text-gray-800" aria-live="polite"></h2>
+                    <button id="calendar-next" type="button" class="p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Next month">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="month-calendar">
+                    <div class="month-calendar-weekdays" aria-hidden="true">
+                        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
+                        <span>Thu</span><span>Fri</span><span>Sat</span>
+                    </div>
+                    <div id="month-calendar-grid" class="month-calendar-grid"></div>
+                </div>
+                <p class="mt-3 text-xs text-gray-500">Browse up to two months before or after this month.</p>
+                <section class="mt-4 border-t border-gray-100 pt-4" aria-live="polite">
+                    <h3 id="calendar-day-heading" class="font-semibold text-gray-700 mb-3"></h3>
+                    <div id="calendar-day-schedule" class="space-y-2"></div>
+                </section>
+            </div>
+
+            <!-- Tasks -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm">
+                <h2 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-list-check text-blue-500 mr-2"></i>Homework To-Do</h2>
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="new-task-input" class="flex-1 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Add a new task...">
+                    <button id="btn-add-task" class="bg-blue-600 text-white px-5 rounded-xl font-semibold hover:bg-blue-700"><i class="fas fa-plus"></i></button>
+                </div>
+                <ul id="tasks-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    <!-- Populated dynamically -->
+                </ul>
+            </div>
+
+            <!-- Weekly Plan -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm">
+                <h2 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-calendar-alt text-emerald-500 mr-2"></i>Schedule Planner</h2>
+                
+                <div class="flex gap-2 mb-4">
+                    <button id="show-event-form" class="flex-1 bg-emerald-50 text-emerald-700 py-2 rounded-xl font-semibold border border-emerald-200 hover:bg-emerald-100 transition-colors text-sm"><i class="fas fa-calendar-day mr-1"></i> Add Specific Event</button>
+                    <button id="show-routine-form" class="flex-1 bg-indigo-50 text-indigo-700 py-2 rounded-xl font-semibold border border-indigo-200 hover:bg-indigo-100 transition-colors text-sm"><i class="fas fa-sync mr-1"></i> Add Weekly Routine</button>
+                </div>
+
+                <!-- Add Specific Event Form -->
+                <div id="event-form-container" class="hidden mb-5 p-4 bg-gray-50 rounded-xl border border-gray-200 shadow-inner">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-calendar-day text-emerald-500 mr-1"></i>New Specific Event</h3>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Date</label>
+                            <input type="date" id="event-date" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm bg-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Time</label>
+                            <input type="time" id="event-time" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm bg-white" required>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Type</label>
+                            <select id="event-type" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm bg-white">
+                                <option value="pl">Premier League</option>
+                                <option value="laliga">La Liga</option>
+                                <option value="f1">F1 Race</option>
+                                <option value="class">School / Class</option>
+                                <option value="other">Other Event</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Title/Match</label>
+                            <input type="text" id="event-title" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" placeholder="e.g. Arsenal vs Spurs">
+                        </div>
+                    </div>
+                    <button id="btn-add-event" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-semibold hover:bg-emerald-700 transition-colors text-sm shadow-md">
+                        Save Event
+                    </button>
+                </div>
+
+                <!-- Add Routine Form -->
+                <div id="routine-form-container" class="hidden mb-5 p-4 bg-gray-50 rounded-xl border border-gray-200 shadow-inner">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-sync text-indigo-500 mr-1"></i>New Weekly Routine</h3>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Day of Week</label>
+                            <select id="routine-day" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white">
+                                <option value="1">Monday</option>
+                                <option value="2">Tuesday</option>
+                                <option value="3">Wednesday</option>
+                                <option value="4">Thursday</option>
+                                <option value="5">Friday</option>
+                                <option value="6">Saturday</option>
+                                <option value="0">Sunday</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Time</label>
+                            <input type="time" id="routine-time" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-xs text-gray-500 mb-1">Activity Name</label>
+                        <input type="text" id="routine-title" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="e.g. Piano Lesson">
+                    </div>
+                    <button id="btn-add-routine" class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-semibold hover:bg-indigo-700 transition-colors text-sm shadow-md">
+                        Save Weekly Routine
+                    </button>
+                </div>
+
+            </div>
+        </div>

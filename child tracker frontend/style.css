@@ -1,0 +1,71 @@
+body { font-family: 'Inter', sans-serif; }
+.hidden { display: none !important; }
+.slide-in { animation: slideIn 0.3s ease-out forwards; }
+@keyframes slideIn {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+input[type=range] {
+    -webkit-appearance: none; width: 100%; background: transparent;
+}
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%;
+    background: #4f46e5; cursor: pointer; margin-top: -8px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%; height: 6px; cursor: pointer; background: #e5e7eb; border-radius: 3px;
+}
+.mood-btn.selected { transform: scale(1.2); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); background-color: #e0e7ff; border-color: #4f46e5; }
+.month-calendar-weekdays,
+.month-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.month-calendar-weekdays span {
+    padding: 0.4rem 0;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-align: center;
+}
+.month-calendar-day {
+    min-width: 0;
+    min-height: 5.5rem;
+    padding: 0.3rem;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+    background: white;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+.calendar-day-button { cursor: pointer; }
+.calendar-day-button:hover { background: #f1f5f9; }
+.calendar-day-button.selected { outline: 2px solid #10b981; outline-offset: -2px; }
+.calendar-day-button:focus-visible { outline: 2px solid #059669; outline-offset: -2px; }
+.month-calendar-day.outside-month { background: #f8fafc; }
+.month-calendar-day.today { background: #ecfdf5; border-color: #6ee7b7; }
+.month-calendar-day-number {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: #334155;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.month-calendar-event {
+    display: block;
+    margin-top: 0.15rem;
+    padding: 0.15rem 0.25rem;
+    overflow: hidden;
+    border-radius: 0.25rem;
+    background: #e0e7ff;
+    color: #3730a3;
+    font-size: 0.6rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+@media (max-width: 380px) {
+    .month-calendar-day { min-height: 4.5rem; padding: 0.2rem; }
+    .month-calendar-event { font-size: 0.55rem; }
+}

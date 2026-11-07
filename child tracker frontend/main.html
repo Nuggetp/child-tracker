@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Child Status App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+    <!-- Custom Modal -->
+    <div id="modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-sm transform transition-all">
+            <h3 id="modal-title" class="text-xl font-bold text-gray-800 mb-2"></h3>
+            <p id="modal-msg" class="mb-4 text-gray-600 text-sm"></p>
+            <input type="password" id="modal-input" pattern="[0-9]*" inputmode="numeric" class="hidden w-full p-3 border border-gray-300 rounded-xl mb-5 text-center text-xl tracking-widest focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Enter PIN" />
+            <div class="flex justify-end gap-3">
+                <button id="modal-cancel" class="px-5 py-2.5 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors hidden">Cancel</button>
+                <button id="modal-ok" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors w-full sm:w-auto">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Navigation Bar (Hidden on Login) -->
+    <nav id="top-nav" class="hidden bg-white shadow-sm sticky top-0 z-40">
+        <div class="max-w-md mx-auto px-4 h-14 flex items-center justify-between">
+            <button id="btn-back" class="text-slate-500 hover:text-indigo-600 hidden p-2">
+                <i class="fas fa-chevron-left text-lg"></i>
+            </button>
+            <h1 id="nav-title" class="text-lg font-bold text-slate-800">Dashboard</h1>
+            <button id="btn-logout" class="text-slate-500 hover:text-red-500 p-2 text-sm font-medium">Logout</button>
+        </div>
+    </nav>
+
+    <!-- Main App Container -->
+    <main class="max-w-md mx-auto p-4 pb-20">
+
+        <div id="screen-lock"></div>
+        <div id="screen-child"></div>
+        <div id="screen-parent"></div>
+    </main>
+
+    <!-- Firebase Logic -->
+    <script type="module" src="script.js"></script>
+</body>
+</html>
