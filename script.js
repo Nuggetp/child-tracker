@@ -1,7 +1,3 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
 const screens = [
     { path: "lock-screen.html", container: "screen-lock" },
     { path: "child-screen.html", container: "screen-child" },
@@ -20,82 +16,81 @@ loadedScreens.forEach(({ container, markup }) => {
     document.getElementById(container).innerHTML = markup;
 });
 
-// Global configuration from environment
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'child-status-app-demo';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-    // Provide a dummy config if needed for local testing outside immersive, 
-    // but in the actual environment it will be injected.
-};
-
-let app, db, auth;
-try {
-    app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    auth = getAuth(app);
-} catch (e) {
-    console.error("Firebase init failed:", e);
-}
-
 const LOCAL_TASKS_KEY = 'child-status-app.tasks';
 const LOCAL_SCHEDULE_KEY = 'child-status-app.schedule';
 const LOCAL_LOGS_KEY = 'child-status-app.logs';
 const LOCAL_SUBJECTS_KEY = 'child-status-app.subjects';
 const LOCAL_TEAMS_KEY = 'child-status-app.teams';
-
-function readLocalItems(key) {
-    try {
-        const items = JSON.parse(localStorage.getItem(key) || '[]');
-        if (!Array.isArray(items)) throw new Error(`Stored value for ${key} is not a list.`);
-        return items;
-    } catch (error) {
-        console.error(`Could not load local data for ${key}.`, error);
-        return [];
-    }
-}
-
-function saveLocalItems(key, items) {
-    try {
-        localStorage.setItem(key, JSON.stringify(items));
-    } catch (error) {
-        console.error(`Could not save local data for ${key}.`, error);
-        throw error;
-    }
-}
-
-function createLocalId() {
-    return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
+const LOCAL_MIGRATION_KEY = 'child-status-app.online-migration-v1';
 
 // Global State
 let currentUserRole = null; // 'child' | 'parent'
 let currentMood = null;
-let subjectsList = readLocalItems(LOCAL_SUBJECTS_KEY);
-let tasksList = readLocalItems(LOCAL_TASKS_KEY);
-let logsList = readLocalItems(LOCAL_LOGS_KEY);
-let scheduleList = readLocalItems(LOCAL_SCHEDULE_KEY);
-let teamsData = (() => {
-    try {
-        return { pl: '', laliga: '', ...JSON.parse(localStorage.getItem(LOCAL_TEAMS_KEY) || '{}') };
-    } catch (error) {
-        console.error('Could not load favorite teams.', error);
-        return { pl: '', laliga: '' };
-    }
-})();
+let subjectsList = [];
+let tasksList = [];
+let logsList = [];
+let scheduleList = [];
+let teamsData = { pl: '', laliga: '' };
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let parentCalendarMonth = new Date(calendarMonth);
 let calendarSelectedDate = getLocalDateString(new Date());
 let parentCalendarSelectedDate = calendarSelectedDate;
+let dataRefreshInterval = null;
+let dataRefreshInProgress = false;
 
-// Listeners for cleanup
-let subjectsUnsub = null;
-let tasksUnsub = null;
-let logsUnsub = null;
-let scheduleUnsub = null;
-let teamsUnsub = null;
+async function apiRequest(url, options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+            ...options.headers
+        }
+    });
+    const result = await response.json();
+    if (!response.ok) {
+        throw new Error(result.error || `Request failed (${response.status}).`);
+    }
+    return result;
+}
 
-// Passwords (Hardcoded per prompt)
-const PIN_CHILD = "2110";
-const PIN_PARENT = "0909";
+async function saveSharedRecord(collection, record, id = record.id || globalThis.crypto.randomUUID()) {
+    const { id: _id, ...data } = record;
+    return apiRequest(`/api/data/${collection}/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+}
+
+function readLegacyItems(key) {
+    try {
+        const value = JSON.parse(localStorage.getItem(key) || '[]');
+        if (Array.isArray(value)) return value;
+        console.error(`Legacy data for ${key} is not a list and was skipped.`);
+    } catch (error) {
+        console.error(`Could not read legacy data for ${key}.`, error);
+    }
+    return [];
+}
+
+async function importLegacyDataIfNeeded() {
+    if (localStorage.getItem(LOCAL_MIGRATION_KEY) === 'done') return;
+
+    let teams = { pl: '', laliga: '' };
+    try {
+        teams = { ...teams, ...JSON.parse(localStorage.getItem(LOCAL_TEAMS_KEY) || '{}') };
+    } catch (error) {
+        console.error('Could not read legacy favorite teams.', error);
+    }
+    const legacy = {
+        subjects: readLegacyItems(LOCAL_SUBJECTS_KEY),
+        tasks: readLegacyItems(LOCAL_TASKS_KEY),
+        schedule: readLegacyItems(LOCAL_SCHEDULE_KEY),
+        logs: readLegacyItems(LOCAL_LOGS_KEY),
+        teams
+    };
+    await apiRequest('/api/data/import', { method: 'POST', body: JSON.stringify(legacy) });
+    localStorage.setItem(LOCAL_MIGRATION_KEY, 'done');
+}
 
 // --- DOM Elements ---
 const views = {
@@ -179,13 +174,8 @@ document.getElementById('btn-add-event').addEventListener('click', async () => {
 
     try {
         const event = { isRoutine: false, date, time, type, title, timestamp: Date.now() };
-        if (auth?.currentUser && db) {
-            const scheduleRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedule');
-            await addDoc(scheduleRef, event);
-        } else {
-            scheduleList.push({ ...event, id: createLocalId() });
-            saveLocalItems(LOCAL_SCHEDULE_KEY, scheduleList);
-        }
+        const savedEvent = await saveSharedRecord('schedule', event);
+        scheduleList.push(savedEvent);
         document.getElementById('event-time').value = '';
         document.getElementById('event-title').value = '';
         document.getElementById('event-form-container').classList.add('hidden');
@@ -209,13 +199,8 @@ document.getElementById('btn-add-routine').addEventListener('click', async () =>
 
     try {
         const routine = { isRoutine: true, day, time, type: 'routine', title, timestamp: Date.now() };
-        if (auth?.currentUser && db) {
-            const scheduleRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedule');
-            await addDoc(scheduleRef, routine);
-        } else {
-            scheduleList.push({ ...routine, id: createLocalId() });
-            saveLocalItems(LOCAL_SCHEDULE_KEY, scheduleList);
-        }
+        const savedRoutine = await saveSharedRecord('schedule', routine);
+        scheduleList.push(savedRoutine);
         document.getElementById('routine-time').value = '';
         document.getElementById('routine-title').value = '';
         document.getElementById('routine-form-container').classList.add('hidden');
@@ -418,13 +403,9 @@ document.getElementById('calendar-day-schedule').addEventListener('click', async
     if (!button) return;
     const id = button.dataset.id;
     try {
-        if (auth?.currentUser && db) {
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedule', id));
-        } else {
-            scheduleList = scheduleList.filter(item => item.id !== id);
-            saveLocalItems(LOCAL_SCHEDULE_KEY, scheduleList);
-            renderSchedule();
-        }
+        await apiRequest(`/api/data/schedule/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        scheduleList = scheduleList.filter(item => item.id !== id);
+        renderSchedule();
     } catch (error) {
         console.error('Error deleting schedule event', error);
         await showModal('Error', 'Could not delete this schedule item.', 'alert');
@@ -467,11 +448,11 @@ function renderParentLogs() {
                 <div class="mt-3 bg-indigo-50 p-3 rounded-xl border border-indigo-100 flex justify-between items-center">
                     <div>
                         <div class="text-xs text-indigo-500 font-bold uppercase">Test Entry</div>
-                        <div class="font-semibold text-indigo-900">${log.testSubject || 'Subject N/A'}</div>
+                        <div class="font-semibold text-indigo-900">${escapeHtml(log.testSubject || 'Subject N/A')}</div>
                     </div>
                     <div class="text-right">
-                        <div class="text-lg font-bold text-indigo-700">${log.testScore || '-'}</div>
-                        <div class="text-xs text-indigo-500">${log.testResult || '-'}</div>
+                        <div class="text-lg font-bold text-indigo-700">${escapeHtml(log.testScore || '-')}</div>
+                        <div class="text-xs text-indigo-500">${escapeHtml(log.testResult || '-')}</div>
                     </div>
                 </div>
             `;
@@ -480,31 +461,31 @@ function renderParentLogs() {
         card.innerHTML = `
             <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <div>
-                    <div class="font-bold text-gray-800">${log.dateStr}</div>
+                    <div class="font-bold text-gray-800">${escapeHtml(log.dateStr)}</div>
                     <div class="text-xs text-gray-500">${timeStr}</div>
                 </div>
                 <div class="flex items-center gap-2 bg-white px-3 py-1 rounded-full shadow-sm">
                     <span class="text-2xl">${getMoodEmoji(log.mood)}</span>
-                    <span class="text-sm font-semibold text-gray-700">${log.mood}</span>
+                    <span class="text-sm font-semibold text-gray-700">${escapeHtml(log.mood)}</span>
                 </div>
             </div>
             <div class="p-4 space-y-4">
                 <div class="grid grid-cols-4 gap-2 text-center">
                     <div class="bg-blue-50 p-2 rounded-xl">
                         <div class="text-xs text-blue-500 mb-1">Free</div>
-                        <div class="font-bold text-blue-700">${log.freeTime}/10</div>
+                        <div class="font-bold text-blue-700">${escapeHtml(log.freeTime)}/10</div>
                     </div>
                     <div class="bg-red-50 p-2 rounded-xl">
                         <div class="text-xs text-red-500 mb-1">Stress</div>
-                        <div class="font-bold text-red-700">${log.stress}/10</div>
+                        <div class="font-bold text-red-700">${escapeHtml(log.stress)}/10</div>
                     </div>
                     <div class="bg-emerald-50 p-2 rounded-xl">
                         <div class="text-xs text-emerald-500 mb-1">Screen</div>
-                        <div class="font-bold text-emerald-700">${log.screenTime || 0}h</div>
+                        <div class="font-bold text-emerald-700">${escapeHtml(log.screenTime || 0)}h</div>
                     </div>
                     <div class="bg-purple-50 p-2 rounded-xl">
                         <div class="text-xs text-purple-500 mb-1">Sleep</div>
-                        <div class="font-bold text-purple-700">${log.sleepTime || '-'}</div>
+                        <div class="font-bold text-purple-700">${escapeHtml(log.sleepTime || '-')}</div>
                     </div>
                 </div>
 
@@ -514,19 +495,29 @@ function renderParentLogs() {
                     ${log.interesting ? `
                     <div>
                         <div class="text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider">Most Interesting</div>
-                        <p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl">${log.interesting}</p>
+                        <p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl">${escapeHtml(log.interesting)}</p>
                     </div>` : ''}
 
                     ${log.happened ? `
                     <div>
                         <div class="text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider">Happened Today</div>
-                        <p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl">${log.happened}</p>
+                        <p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl">${escapeHtml(log.happened)}</p>
                     </div>` : ''}
                 </div>
             </div>
         `;
         container.appendChild(card);
     });
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[character]);
 }
 
 function renderParentSchedule() {
@@ -554,92 +545,53 @@ function renderParentSchedule() {
 }
 
 
-// --- Firebase Sync Logic ---
-function startDataSync() {
-    if (!auth?.currentUser || !db) {
-        renderSubjects();
-        renderTasks();
-        renderSchedule();
-        renderParentLogs();
-        renderParentSchedule();
-        return;
+// --- Shared database sync ---
+async function refreshSharedData() {
+    let data = await apiRequest('/api/data');
+    if (currentUserRole === 'child' && localStorage.getItem(LOCAL_MIGRATION_KEY) !== 'done') {
+        await importLegacyDataIfNeeded();
+        data = await apiRequest('/api/data');
     }
+
+    subjectsList = data.subjects || [];
+    tasksList = (data.tasks || []).sort((a, b) => {
+        if (a.completed === b.completed) return (a.timestamp || 0) - (b.timestamp || 0);
+        return a.completed ? 1 : -1;
+    });
+    scheduleList = data.schedule || [];
+    logsList = data.logs || [];
+    teamsData = { pl: '', laliga: '', ...(data.settings?.teams || {}) };
+
+    const plInput = document.getElementById('input-pl-team');
+    const laligaInput = document.getElementById('input-laliga-team');
+    if (plInput) plInput.value = teamsData.pl;
+    if (laligaInput) laligaInput.value = teamsData.laliga;
+    renderSubjects();
+    renderTasks();
+    renderSchedule();
+    renderParentLogs();
+    renderParentSchedule();
+}
+
+async function startDataSync() {
     cleanupListeners();
-
-    const baseDocRef = doc(db, 'artifacts', appId, 'public', 'data');
-
-    // 1. Subjects
-    const qSubjects = query(collection(baseDocRef, 'subjects'));
-    subjectsUnsub = onSnapshot(qSubjects, (snapshot) => {
-        subjectsList = [];
-        snapshot.forEach(doc => {
-            subjectsList.push({ id: doc.id, ...doc.data() });
-        });
-        renderSubjects();
-    }, (err) => console.error(err));
-
-    // 2. Tasks
-    const qTasks = query(collection(baseDocRef, 'tasks'));
-    tasksUnsub = onSnapshot(qTasks, (snapshot) => {
-        tasksList = [];
-        snapshot.forEach(doc => {
-            tasksList.push({ id: doc.id, ...doc.data() });
-        });
-        // Sort incomplete first, then by timestamp
-        tasksList.sort((a, b) => {
-            if (a.completed === b.completed) return (a.timestamp || 0) - (b.timestamp || 0);
-            return a.completed ? 1 : -1;
-        });
-        renderTasks();
-    }, (err) => console.error(err));
-
-    // 3. Schedule
-    const qSchedule = query(collection(baseDocRef, 'schedule'));
-    scheduleUnsub = onSnapshot(qSchedule, (snapshot) => {
-        scheduleList = [];
-        snapshot.forEach(doc => {
-            scheduleList.push({ id: doc.id, ...doc.data() });
-        });
-        renderSchedule();
-        renderParentSchedule();
-    }, (err) => console.error(err));
-
-    // 4. Logs
-    const qLogs = query(collection(baseDocRef, 'logs'));
-    logsUnsub = onSnapshot(qLogs, (snapshot) => {
-        logsList = [];
-        snapshot.forEach(doc => {
-            logsList.push({ id: doc.id, ...doc.data() });
-        });
-        if (currentUserRole === 'parent') {
-            renderParentLogs();
+    await refreshSharedData();
+    dataRefreshInterval = setInterval(async () => {
+        if (dataRefreshInProgress) return;
+        dataRefreshInProgress = true;
+        try {
+            await refreshSharedData();
+        } catch (error) {
+            console.error('Could not refresh shared data.', error);
+        } finally {
+            dataRefreshInProgress = false;
         }
-    }, (err) => console.error(err));
-
-    // 5. Teams Preference
-    const teamsRef = doc(baseDocRef, 'settings', 'teams');
-    teamsUnsub = onSnapshot(teamsRef, (docSnap) => {
-        if (docSnap.exists()) {
-            teamsData = docSnap.data();
-            const plInput = document.getElementById('input-pl-team');
-            const laligaInput = document.getElementById('input-laliga-team');
-            if (plInput) plInput.value = teamsData.pl || '';
-            if (laligaInput) laligaInput.value = teamsData.laliga || '';
-        }
-    }, (err) => console.error(err));
+    }, 5000);
 }
 
 function cleanupListeners() {
-    if (subjectsUnsub) subjectsUnsub();
-    if (tasksUnsub) tasksUnsub();
-    if (logsUnsub) logsUnsub();
-    if (scheduleUnsub) scheduleUnsub();
-    if (teamsUnsub) teamsUnsub();
-    subjectsUnsub = null;
-    tasksUnsub = null;
-    logsUnsub = null;
-    scheduleUnsub = null;
-    teamsUnsub = null;
+    if (dataRefreshInterval) clearInterval(dataRefreshInterval);
+    dataRefreshInterval = null;
 }
 
 // --- Navigation Helper ---
@@ -670,29 +622,35 @@ modalOk.addEventListener('click', () => {
 });
 
 // --- Login Events ---
-document.getElementById('login-child').addEventListener('click', async () => {
-    const pin = await showModal("Child Login", "Enter Child PIN:", "prompt");
-    if (pin === PIN_CHILD) {
-        currentUserRole = 'child';
-        startDataSync();
-        showView(views.childDash, "Child Dashboard", true, false);
-    } else if (pin !== null) {
-        showModal("Error", "Incorrect PIN", "alert");
-    }
-});
+async function login(role) {
+    const profileName = role === 'child' ? 'Child' : 'Parent';
+    const pin = await showModal(`${profileName} Login`, `Enter ${profileName} PIN:`, 'prompt');
+    if (pin === null) return;
 
-document.getElementById('login-parent').addEventListener('click', async () => {
-    const pin = await showModal("Parent Login", "Enter Parent PIN:", "prompt");
-    if (pin === PIN_PARENT) {
-        currentUserRole = 'parent';
-        startDataSync();
-        renderParentLogs();
-        renderParentSchedule();
-        showView(views.parentDash, "Parent Dashboard", true, false);
-    } else if (pin !== null) {
-        showModal("Error", "Incorrect PIN", "alert");
+    try {
+        await apiRequest('/api/login', {
+            method: 'POST',
+            body: JSON.stringify({ role, pin })
+        });
+        currentUserRole = role;
+        await startDataSync();
+        showView(role === 'child' ? views.childDash : views.parentDash,
+            `${profileName} Dashboard`, true, false);
+    } catch (error) {
+        currentUserRole = null;
+        cleanupListeners();
+        console.error(`Could not log in as ${profileName.toLowerCase()}.`, error);
+        const message = error.message === 'Incorrect profile PIN.'
+            ? 'Incorrect PIN.'
+            : error.message.startsWith('Too many incorrect PIN attempts.')
+                ? error.message
+                : 'Could not connect to shared storage. Please try again later.';
+        await showModal('Login failed', message, 'alert');
     }
-});
+}
+
+document.getElementById('login-child').addEventListener('click', () => login('child'));
+document.getElementById('login-parent').addEventListener('click', () => login('parent'));
 
 // --- Dashboard Navigation Events ---
 document.getElementById('btn-goto-log').addEventListener('click', () => {
@@ -744,9 +702,14 @@ btnBack.addEventListener('click', () => {
     else showView(views.parentDash, "Parent Dashboard", true, false);
 });
 
-btnLogout.addEventListener('click', () => {
+btnLogout.addEventListener('click', async () => {
     currentUserRole = null;
     cleanupListeners();
+    try {
+        await apiRequest('/api/logout', { method: 'POST' });
+    } catch (error) {
+        console.error('Could not end the server session.', error);
+    }
     showView(views.login, "", false, false);
 });
 
@@ -793,33 +756,11 @@ document.getElementById('log-form').addEventListener('submit', async (e) => {
     };
 
     try {
-        if (auth?.currentUser && db) {
-            const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'logs');
-            if (existingLog?.id) {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'logs', existingLog.id), logData);
-                logsList = logsList.map(log => log.id === existingLog.id ? { ...log, ...logData } : log);
-            } else {
-                const logRef = doc(db, 'artifacts', appId, 'public', 'data', 'logs', dayKey);
-                const storedLog = await getDoc(logRef);
-                if (storedLog.exists()) {
-                    await updateDoc(logRef, logData);
-                    const cachedLog = logsList.some(log => log.id === storedLog.id);
-                    logsList = cachedLog
-                        ? logsList.map(log => log.id === storedLog.id ? { ...log, ...logData } : log)
-                        : [...logsList, { id: storedLog.id, ...logData }];
-                } else {
-                    await setDoc(logRef, logData);
-                    logsList.push({ id: dayKey, ...logData });
-                }
-            }
-        } else {
-            if (existingLog) {
-                logsList = logsList.map(log => log.id === existingLog.id ? { ...log, ...logData } : log);
-            } else {
-                logsList.push({ id: dayKey, ...logData });
-            }
-            saveLocalItems(LOCAL_LOGS_KEY, logsList);
-        }
+        const logId = existingLog?.id || dayKey;
+        const savedLog = await saveSharedRecord('logs', logData, logId);
+        logsList = existingLog
+            ? logsList.map(log => log.id === logId ? savedLog : log)
+            : [...logsList, savedLog];
         renderParentLogs();
         await showModal("Success", "Today's log saved successfully!", "alert");
         showView(views.childDash, "Child Dashboard", true, false);
@@ -859,13 +800,9 @@ function renderSubjects() {
         btn.addEventListener('click', async (e) => {
             const id = e.currentTarget.getAttribute('data-id');
             try {
-                if (auth?.currentUser && db) {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'subjects', id));
-                } else {
-                    subjectsList = subjectsList.filter(subject => subject.id !== id);
-                    saveLocalItems(LOCAL_SUBJECTS_KEY, subjectsList);
-                    renderSubjects();
-                }
+                await apiRequest(`/api/data/subjects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                subjectsList = subjectsList.filter(subject => subject.id !== id);
+                renderSubjects();
             } catch (error) {
                 console.error('Error deleting subject', error);
                 await showModal('Error', 'Could not remove this subject.', 'alert');
@@ -879,13 +816,8 @@ document.getElementById('btn-add-subject').addEventListener('click', async () =>
     const name = input.value.trim();
     if (!name) return;
     try {
-        if (auth?.currentUser && db) {
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'subjects'), { name, timestamp: Date.now() });
-        } else {
-            subjectsList.push({ id: createLocalId(), name, timestamp: Date.now() });
-            saveLocalItems(LOCAL_SUBJECTS_KEY, subjectsList);
-            renderSubjects();
-        }
+        subjectsList.push(await saveSharedRecord('subjects', { name, timestamp: Date.now() }));
+        renderSubjects();
         input.value = '';
     } catch (error) {
         console.error('Error adding subject', error);
@@ -894,25 +826,7 @@ document.getElementById('btn-add-subject').addEventListener('click', async () =>
 });
 
 async function fetchApiJson(url) {
-    let response;
-    
-    // Add your Render URL here!
-    const renderUrl = "https://child-tracker-r137.onrender.com/" + url; 
-    
-    try {
-        // Change it to fetch the new renderUrl
-        response = await fetch(renderUrl); 
-    } catch (error) {
-        if (error instanceof TypeError) {
-            throw new Error('Cannot reach the schedule service. Ensure your Render server is live.');
-        }
-        throw error;
-    }
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `API request failed (${response.status}): ${url}`);
-    }
-    return response.json();
+    return apiRequest(url);
 }
 
 function normalizeTeamName(name) {
@@ -1102,29 +1016,17 @@ async function syncOnlineSchedules(plTeam, laligaTeam) {
 
     const succeededSources = succeeded.map(result => result.source);
     const importedEvents = succeeded.flatMap(result => result.events);
-    if (auth?.currentUser && db) {
-        const scheduleRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedule');
-        const snapshot = await getDocs(scheduleRef);
-        const currentEvents = snapshot.docs.map(entry => ({ id: entry.id, ...entry.data() }));
-        const obsoleteEvents = currentEvents.filter(event => event.isAutoSync
-            && (!event.source || succeededSources.includes(event.source)));
-        await Promise.all(obsoleteEvents.map(event => deleteDoc(doc(scheduleRef, event.id))));
-        await Promise.all(importedEvents.map(event => {
-            const { id, ...eventData } = event;
-            return setDoc(doc(scheduleRef, id), eventData);
-        }));
-        scheduleList = [
-            ...currentEvents.filter(event => !obsoleteEvents.some(obsolete => obsolete.id === event.id)),
-            ...importedEvents
-        ];
-    } else {
-        scheduleList = [
-            ...scheduleList.filter(event => !event.isAutoSync
-                || (event.source && !succeededSources.includes(event.source))),
-            ...importedEvents
-        ];
-        saveLocalItems(LOCAL_SCHEDULE_KEY, scheduleList);
-    }
+    const sharedData = await apiRequest('/api/data');
+    const currentEvents = sharedData.schedule || [];
+    const obsoleteEvents = currentEvents.filter(event => event.isAutoSync
+        && (!event.source || succeededSources.includes(event.source)));
+    await Promise.all(obsoleteEvents.map(event =>
+        apiRequest(`/api/data/schedule/${encodeURIComponent(event.id)}`, { method: 'DELETE' })));
+    await Promise.all(importedEvents.map(event => saveSharedRecord('schedule', event, event.id)));
+    scheduleList = [
+        ...currentEvents.filter(event => !obsoleteEvents.some(obsolete => obsolete.id === event.id)),
+        ...importedEvents
+    ];
     renderSchedule();
 
     return {
@@ -1142,11 +1044,7 @@ document.getElementById('btn-save-teams').addEventListener('click', async () => 
     try {
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
         teamsData = { pl, laliga };
-        localStorage.setItem(LOCAL_TEAMS_KEY, JSON.stringify(teamsData));
-        if (auth?.currentUser && db) {
-            const teamsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teams');
-            await setDoc(teamsRef, teamsData, { merge: true });
-        }
+        await saveSharedRecord('settings', teamsData, 'teams');
         const result = await syncOnlineSchedules(pl, laliga);
         btn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Save & Sync Schedules';
         const message = result.errors.length
@@ -1171,7 +1069,7 @@ function renderTasks() {
             <button class="text-xl btn-toggle-task ${task.completed ? 'text-blue-500' : 'text-gray-300 hover:text-gray-400'}" data-id="${task.id}" data-val="${task.completed}">
                 <i class="${task.completed ? 'fas fa-check-circle' : 'far fa-circle'}"></i>
             </button>
-            <span class="flex-1 text-sm font-medium ${task.completed ? 'line-through text-gray-500' : 'text-gray-700'}">${task.text}</span>
+            <span class="flex-1 text-sm font-medium ${task.completed ? 'line-through text-gray-500' : 'text-gray-700'}">${escapeHtml(task.text)}</span>
             <button class="text-red-400 hover:text-red-600 p-1 btn-del-task" data-id="${task.id}"><i class="fas fa-trash-alt"></i></button>
         `;
         list.appendChild(li);
@@ -1182,13 +1080,11 @@ function renderTasks() {
             const id = e.currentTarget.getAttribute('data-id');
             const currentVal = e.currentTarget.getAttribute('data-val') === 'true';
             try {
-                if (auth?.currentUser && db) {
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', id), { completed: !currentVal });
-                } else {
-                    tasksList = tasksList.map(task => task.id === id ? { ...task, completed: !currentVal } : task);
-                    saveLocalItems(LOCAL_TASKS_KEY, tasksList);
-                    renderTasks();
-                }
+                const task = tasksList.find(item => item.id === id);
+                if (!task) return;
+                await saveSharedRecord('tasks', { ...task, completed: !currentVal }, id);
+                tasksList = tasksList.map(item => item.id === id ? { ...item, completed: !currentVal } : item);
+                renderTasks();
             } catch (error) {
                 console.error("Error updating task", error);
                 await showModal("Error", "Could not update this task.", "alert");
@@ -1200,13 +1096,9 @@ function renderTasks() {
         btn.addEventListener('click', async (e) => {
             const id = e.currentTarget.getAttribute('data-id');
             try {
-                if (auth?.currentUser && db) {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', id));
-                } else {
-                    tasksList = tasksList.filter(task => task.id !== id);
-                    saveLocalItems(LOCAL_TASKS_KEY, tasksList);
-                    renderTasks();
-                }
+                await apiRequest(`/api/data/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                tasksList = tasksList.filter(task => task.id !== id);
+                renderTasks();
             } catch (error) {
                 console.error("Error deleting task", error);
                 await showModal("Error", "Could not delete this task.", "alert");
@@ -1221,33 +1113,14 @@ document.getElementById('btn-add-task').addEventListener('click', async () => {
     if (!text) return;
     try {
         const task = { text, completed: false, timestamp: Date.now() };
-        if (auth?.currentUser && db) {
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), task);
-        } else {
-            tasksList.push({ ...task, id: createLocalId() });
-            saveLocalItems(LOCAL_TASKS_KEY, tasksList);
-            renderTasks();
-        }
+        tasksList.push(await saveSharedRecord('tasks', task));
+        renderTasks();
         input.value = '';
     } catch (error) {
         console.error("Error adding task", error);
         await showModal("Error", "Could not save this task.", "alert");
     }
 });
-
-// --- Init App ---
-if (auth) {
-    onAuthStateChanged(auth, async (user) => {
-        if (!user) {
-            const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            if (token) {
-                await signInWithCustomToken(auth, token);
-            } else {
-                await signInAnonymously(auth);
-            }
-        }
-    });
-}
 
 // Show login view by default
 showView(views.login, "", false, false);

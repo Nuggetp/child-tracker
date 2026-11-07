@@ -1,11 +1,23 @@
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const { Pool } = require('pg');
 
 const root = __dirname;
 const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 4173);
 const allowedLeagues = new Set(['eng.1', 'esp.1']);
+const allowedCollections = new Set(['subjects', 'tasks', 'schedule', 'logs', 'settings']);
+const sessionCookieName = 'child_status_session';
+const sessionDurationSeconds = 60 * 60 * 8;
+const maxRequestBodyBytes = 1024 * 1024;
+const databaseUrl = process.env.DATABASE_URL;
+const sessionSecret = process.env.SESSION_SECRET;
+const parentPin = process.env.PARENT_PIN;
+const childPin = process.env.CHILD_PIN;
+const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
+const failedLoginAttempts = new Map();
 const mimeTypes = {
     '.css': 'text/css; charset=utf-8',
     '.html': 'text/html; charset=utf-8',
@@ -20,6 +32,204 @@ function sendJson(response, status, data) {
         'X-Content-Type-Options': 'nosniff'
     });
     response.end(JSON.stringify(data));
+}
+
+function readJsonBody(request) {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        let tooLarge = false;
+        request.setEncoding('utf8');
+        request.on('data', chunk => {
+            if (tooLarge) return;
+            body += chunk;
+            if (Buffer.byteLength(body) > maxRequestBodyBytes) {
+                tooLarge = true;
+                reject(Object.assign(new Error('Request body is too large.'), { status: 413 }));
+            }
+        });
+        request.on('end', () => {
+            if (tooLarge) return;
+            try {
+                resolve(JSON.parse(body || '{}'));
+            } catch {
+                reject(Object.assign(new Error('Request body must be valid JSON.'), { status: 400 }));
+            }
+        });
+        request.on('error', reject);
+    });
+}
+
+function createSessionToken(role) {
+    const payload = Buffer.from(JSON.stringify({
+        role,
+        expiresAt: Math.floor(Date.now() / 1000) + sessionDurationSeconds
+    })).toString('base64url');
+    const signature = crypto.createHmac('sha256', sessionSecret).update(payload).digest('base64url');
+    return `${payload}.${signature}`;
+}
+
+function getSessionRole(request) {
+    const cookies = Object.fromEntries((request.headers.cookie || '').split(';')
+        .map(cookie => cookie.trim().split(/=(.*)/s).slice(0, 2))
+        .filter(([name, value]) => name && value));
+    const token = cookies[sessionCookieName];
+    if (!token) return null;
+
+    const [payload, signature] = token.split('.');
+    if (!payload || !signature) return null;
+    const expected = crypto.createHmac('sha256', sessionSecret).update(payload).digest();
+    let provided;
+    try {
+        provided = Buffer.from(signature, 'base64url');
+    } catch {
+        return null;
+    }
+    if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) return null;
+
+    try {
+        const session = JSON.parse(Buffer.from(payload, 'base64url').toString());
+        return session.expiresAt > Math.floor(Date.now() / 1000) ? session.role : null;
+    } catch {
+        return null;
+    }
+}
+
+function setSessionCookie(request, response, token, maxAge) {
+    const forwardedProtocol = request.headers['x-forwarded-proto']?.split(',')[0].trim();
+    const secure = process.env.NODE_ENV === 'production' || forwardedProtocol === 'https' ? '; Secure' : '';
+    response.setHeader('Set-Cookie',
+        `${sessionCookieName}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secure}`);
+}
+
+function getLoginAttemptState(address) {
+    const now = Date.now();
+    const state = failedLoginAttempts.get(address);
+    if (!state || state.windowEndsAt <= now) {
+        failedLoginAttempts.delete(address);
+        return null;
+    }
+    return state;
+}
+
+function recordFailedLogin(address) {
+    const now = Date.now();
+    const state = getLoginAttemptState(address) || { failures: 0, windowEndsAt: now + 15 * 60 * 1000 };
+    state.failures += 1;
+    failedLoginAttempts.set(address, state);
+    return state.failures >= 5;
+}
+
+function isValidRecord(record) {
+    return record && typeof record === 'object' && !Array.isArray(record);
+}
+
+function isValidRecordId(id) {
+    return typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id);
+}
+
+async function handleDataRequest(request, response, requestUrl, role) {
+    if (request.method === 'GET' && requestUrl.pathname === '/api/data') {
+        const result = await pool.query('SELECT collection, id, data FROM app_data ORDER BY id');
+        const data = Object.fromEntries([...allowedCollections].map(name => [name, name === 'settings' ? {} : []]));
+        for (const row of result.rows) {
+            if (row.collection === 'settings') {
+                data.settings[row.id] = row.data;
+            } else {
+                data[row.collection].push({ id: row.id, ...row.data });
+            }
+        }
+        sendJson(response, 200, data);
+        return;
+    }
+
+    if (role !== 'child') {
+        sendJson(response, 403, { error: 'Only the child profile can change app data.' });
+        return;
+    }
+
+    if (request.method === 'POST' && requestUrl.pathname === '/api/data/import') {
+        const records = await readJsonBody(request);
+        if (!isValidRecord(records)) {
+            sendJson(response, 400, { error: 'A JSON object is required.' });
+            return;
+        }
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const name of ['subjects', 'tasks', 'schedule', 'logs']) {
+                if (records[name] !== undefined && !Array.isArray(records[name])) {
+                    throw Object.assign(new Error(`${name} must be a list.`), { status: 400 });
+                }
+                for (const record of records[name] || []) {
+                    if (!isValidRecord(record) || !isValidRecordId(record.id)) {
+                        throw Object.assign(new Error(`Invalid record in ${name}.`), { status: 400 });
+                    }
+                    const { id: recordId, ...recordData } = record;
+                    await client.query(
+                        'INSERT INTO app_data (collection, id, data) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+                        [name, recordId, recordData]
+                    );
+                }
+            }
+            if (records.teams !== undefined && !isValidRecord(records.teams)) {
+                throw Object.assign(new Error('teams must be an object.'), { status: 400 });
+            }
+            if (records.teams) {
+                await client.query(
+                    'INSERT INTO app_data (collection, id, data) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+                    ['settings', 'teams', records.teams]
+                );
+            }
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+        sendJson(response, 200, { success: true });
+        return;
+    }
+
+    const match = requestUrl.pathname.match(/^\/api\/data\/([a-z]+)(?:\/([^/]+))?$/);
+    if (!match || !allowedCollections.has(match[1])) {
+        sendJson(response, 404, { error: 'Data endpoint not found.' });
+        return;
+    }
+
+    const [, collectionName, rawId] = match;
+    let id;
+    try {
+        id = rawId ? decodeURIComponent(rawId) : null;
+    } catch {
+        sendJson(response, 400, { error: 'Invalid record ID.' });
+        return;
+    }
+
+    if (request.method === 'PUT' && id && isValidRecordId(id)) {
+        const record = await readJsonBody(request);
+        if (!isValidRecord(record)) {
+            sendJson(response, 400, { error: 'A JSON object is required.' });
+            return;
+        }
+        delete record.id;
+        await pool.query(
+            `INSERT INTO app_data (collection, id, data)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data`,
+            [collectionName, id, record]
+        );
+        sendJson(response, 200, { id, ...record });
+        return;
+    }
+
+    if (request.method === 'DELETE' && id && isValidRecordId(id)) {
+        await pool.query('DELETE FROM app_data WHERE collection = $1 AND id = $2', [collectionName, id]);
+        sendJson(response, 200, { success: true });
+        return;
+    }
+
+    sendJson(response, 405, { error: 'Unsupported data operation.' });
 }
 
 async function proxyJson(response, url) {
@@ -75,65 +285,142 @@ async function serveFile(request, response, pathname) {
 }
 
 const server = http.createServer(async (request, response) => {
-    const requestUrl = new URL(request.url, `http://${host}:${port}`);
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-        sendJson(response, 405, { error: 'Only GET and HEAD requests are supported.' });
-        return;
-    }
-
-    if (requestUrl.pathname === '/api/football/teams') {
-        const league = requestUrl.searchParams.get('league');
-        if (!allowedLeagues.has(league)) {
-            sendJson(response, 400, { error: 'League must be eng.1 or esp.1.' });
+    try {
+        const requestUrl = new URL(request.url, `http://${host}:${port}`);
+        if (requestUrl.pathname === '/api/login' && request.method === 'POST') {
+            const clientAddress = request.headers['x-forwarded-for']?.split(',')[0].trim()
+                || request.socket.remoteAddress
+                || 'unknown';
+            const attemptState = getLoginAttemptState(clientAddress);
+            if (attemptState?.failures >= 5) {
+                sendJson(response, 429, { error: 'Too many incorrect PIN attempts. Please wait 15 minutes.' });
+                return;
+            }
+            const credentials = await readJsonBody(request);
+            if (!isValidRecord(credentials)) {
+                sendJson(response, 400, { error: 'A JSON object is required.' });
+                return;
+            }
+            const { role, pin } = credentials;
+            const expectedPin = role === 'parent' ? parentPin : role === 'child' ? childPin : null;
+            if (!expectedPin || typeof pin !== 'string' || pin !== expectedPin) {
+                if (recordFailedLogin(clientAddress)) {
+                    sendJson(response, 429, { error: 'Too many incorrect PIN attempts. Please wait 15 minutes.' });
+                    return;
+                }
+                sendJson(response, 401, { error: 'Incorrect profile PIN.' });
+                return;
+            }
+            failedLoginAttempts.delete(clientAddress);
+            setSessionCookie(request, response, createSessionToken(role), sessionDurationSeconds);
+            sendJson(response, 200, { role });
             return;
         }
-        await proxyJson(response, `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/teams?limit=100`);
-        return;
-    }
 
-    if (requestUrl.pathname === '/api/football/team-schedule') {
-        const league = requestUrl.searchParams.get('league');
-        const teamId = requestUrl.searchParams.get('teamId');
-        if (!allowedLeagues.has(league) || !/^\d{1,8}$/.test(teamId || '')) {
-            sendJson(response, 400, { error: 'A supported league and numeric team ID are required.' });
+        if (requestUrl.pathname === '/api/logout' && request.method === 'POST') {
+            setSessionCookie(request, response, '', 0);
+            sendJson(response, 200, { success: true });
             return;
         }
-        await proxyJson(response, `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/teams/${teamId}/schedule`);
-        return;
-    }
 
-    if (requestUrl.pathname === '/api/football/scoreboard') {
-        const league = requestUrl.searchParams.get('league');
-        const date = requestUrl.searchParams.get('date');
-        if (!allowedLeagues.has(league) || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
-            sendJson(response, 400, { error: 'A supported league and ISO date are required.' });
+        if (requestUrl.pathname.startsWith('/api/data')) {
+            const role = getSessionRole(request);
+            if (!role) {
+                sendJson(response, 401, { error: 'Please log in to access shared data.' });
+                return;
+            }
+            if (request.method !== 'GET' && request.method !== 'PUT' && request.method !== 'POST' && request.method !== 'DELETE') {
+                sendJson(response, 405, { error: 'Unsupported data operation.' });
+                return;
+            }
+            await handleDataRequest(request, response, requestUrl, role);
             return;
         }
-        const dateValue = new Date(`${date}T00:00:00Z`);
-        if (Number.isNaN(dateValue.getTime()) || dateValue.toISOString().slice(0, 10) !== date) {
-            sendJson(response, 400, { error: 'Date must be a valid ISO calendar date.' });
+
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+            sendJson(response, 405, { error: 'Only GET and HEAD requests are supported.' });
             return;
         }
-        await proxyJson(response, `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard?dates=${date.replaceAll('-', '')}`);
-        return;
-    }
 
-    if (requestUrl.pathname === '/api/f1/schedule') {
-        const year = requestUrl.searchParams.get('year');
-        const currentYear = new Date().getFullYear();
-        if (!/^\d{4}$/.test(year || '') || Number(year) < currentYear - 1 || Number(year) > currentYear + 1) {
-            sendJson(response, 400, { error: 'Year must be within one year of the current season.' });
+        if (requestUrl.pathname === '/api/football/teams') {
+            const league = requestUrl.searchParams.get('league');
+            if (!allowedLeagues.has(league)) {
+                sendJson(response, 400, { error: 'League must be eng.1 or esp.1.' });
+                return;
+            }
+            await proxyJson(response, `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/teams?limit=100`);
             return;
         }
-        await proxyJson(response, `https://api.jolpi.ca/ergast/f1/${year}.json?limit=100`);
-        return;
-    }
 
-    await serveFile(request, response, requestUrl.pathname);
+        if (requestUrl.pathname === '/api/football/team-schedule') {
+            const league = requestUrl.searchParams.get('league');
+            const teamId = requestUrl.searchParams.get('teamId');
+            if (!allowedLeagues.has(league) || !/^\d{1,8}$/.test(teamId || '')) {
+                sendJson(response, 400, { error: 'A supported league and numeric team ID are required.' });
+                return;
+            }
+            await proxyJson(response, `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/teams/${teamId}/schedule`);
+            return;
+        }
+
+        if (requestUrl.pathname === '/api/football/scoreboard') {
+            const league = requestUrl.searchParams.get('league');
+            const date = requestUrl.searchParams.get('date');
+            if (!allowedLeagues.has(league) || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
+                sendJson(response, 400, { error: 'A supported league and ISO date are required.' });
+                return;
+            }
+            const dateValue = new Date(`${date}T00:00:00Z`);
+            if (Number.isNaN(dateValue.getTime()) || dateValue.toISOString().slice(0, 10) !== date) {
+                sendJson(response, 400, { error: 'Date must be a valid ISO calendar date.' });
+                return;
+            }
+            await proxyJson(response, `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard?dates=${date.replaceAll('-', '')}`);
+            return;
+        }
+
+        if (requestUrl.pathname === '/api/f1/schedule') {
+            const year = requestUrl.searchParams.get('year');
+            const currentYear = new Date().getFullYear();
+            if (!/^\d{4}$/.test(year || '') || Number(year) < currentYear - 1 || Number(year) > currentYear + 1) {
+                sendJson(response, 400, { error: 'Year must be within one year of the current season.' });
+                return;
+            }
+            await proxyJson(response, `https://api.jolpi.ca/ergast/f1/${year}.json?limit=100`);
+            return;
+        }
+
+        await serveFile(request, response, requestUrl.pathname);
+    } catch (error) {
+        if (response.headersSent || response.destroyed) return;
+        console.error('Request failed.', error);
+        sendJson(response, error.status || 500, {
+            error: error.status ? error.message : 'The request could not be completed.'
+        });
+    }
 });
 
-server.listen(port, host, () => {
-    console.log(`Child Status App running at http://${host}:${port}/`);
+async function startServer() {
+    if (!databaseUrl || !sessionSecret || !parentPin || !childPin) {
+        throw new Error('DATABASE_URL, SESSION_SECRET, PARENT_PIN, and CHILD_PIN must be configured.');
+    }
+    if (sessionSecret.length < 32) {
+        throw new Error('SESSION_SECRET must contain at least 32 characters.');
+    }
+    await pool.query(`CREATE TABLE IF NOT EXISTS app_data (
+        collection TEXT NOT NULL,
+        id TEXT NOT NULL,
+        data JSONB NOT NULL,
+        PRIMARY KEY (collection, id)
+    )`);
+    server.listen(port, host, () => {
+        console.log(`Child Status App running at http://${host}:${port}/`);
+    });
+}
+
+startServer().catch(error => {
+    console.error('Could not start the app server.', error);
+    process.exitCode = 1;
 });
 
 server.on('error', error => {
