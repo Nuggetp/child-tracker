@@ -42,6 +42,13 @@ over HTTPS, then use the browser's install or add-to-home-screen option. The app
 shell is available offline after its first successful load; shared data and
 other API features still require a network connection.
 
+## Calendar colors and permissions
+
+Both child and parent profiles can add, edit, and delete calendar events and
+weekly routines. Events can use a selectable icon and color; synced Premier
+League, La Liga, and F1 items use their own default icons and colors. Tasks can
+also be assigned a color when created.
+
 ## Run locally
 
 Set `DATABASE_URL`, `PARENT_PIN`, `CHILD_PIN`, and `SESSION_SECRET` in the

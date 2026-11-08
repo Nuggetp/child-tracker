@@ -149,67 +149,142 @@ function showModal(title, msg, type = 'alert') {
 }
 
 // --- Schedule Handlers ---
+const scheduleStyles = {
+    pl: { color: '#6c2eb9', icon: 'futbol' },
+    laliga: { color: '#ee1b24', icon: 'futbol' },
+    f1: { color: '#e10600', icon: 'car' },
+    class: { color: '#2563eb', icon: 'book' },
+    routine: { color: '#6366f1', icon: 'calendar-day' },
+    other: { color: '#10b981', icon: 'star' }
+};
+const availableScheduleIcons = new Set(['calendar-day', 'futbol', 'flag-checkered', 'car', 'book', 'star']);
+let editingScheduleItemId = null;
 
-// Toggle Form Visibility
-document.getElementById('show-event-form').addEventListener('click', () => {
-    document.getElementById('event-form-container').classList.toggle('hidden');
-    document.getElementById('routine-form-container').classList.add('hidden');
-});
-document.getElementById('show-routine-form').addEventListener('click', () => {
-    document.getElementById('routine-form-container').classList.toggle('hidden');
-    document.getElementById('event-form-container').classList.add('hidden');
-});
+function getScheduleStyle(item) {
+    const defaults = scheduleStyles[item.type] || scheduleStyles.other;
+    return {
+        color: /^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : defaults.color,
+        icon: availableScheduleIcons.has(item.icon) ? item.icon : defaults.icon
+    };
+}
 
-// Add Specific Event
-document.getElementById('btn-add-event').addEventListener('click', async () => {
-    const date = document.getElementById('event-date').value;
-    const time = document.getElementById('event-time').value;
-    const type = document.getElementById('event-type').value;
-    const title = document.getElementById('event-title').value.trim();
+function setScheduleFormDefaults(prefix, type) {
+    const style = scheduleStyles[type] || scheduleStyles.other;
+    const icon = document.getElementById(`${prefix}event-icon`);
+    const color = document.getElementById(`${prefix}event-color`);
+    if (icon) icon.value = style.icon;
+    if (color) color.value = style.color;
+}
 
-    if (!date || !time || !title) {
-        await showModal("Missing Info", "Please provide a date, time, and title.", "alert");
+function resetScheduleForm(prefix, isRoutine) {
+    const formName = isRoutine ? 'routine' : 'event';
+    const form = document.getElementById(`${prefix}${formName}-form-container`);
+    const button = document.getElementById(`${prefix}btn-add-${formName}`);
+    const heading = document.getElementById(`${prefix}${formName}-form-heading`);
+    if (form) form.classList.add('hidden');
+    if (button) button.textContent = isRoutine ? 'Save Weekly Routine' : 'Save Event';
+    if (heading) heading.textContent = isRoutine ? 'New Weekly Routine' : 'New Event';
+    editingScheduleItemId = null;
+}
+
+async function saveScheduleItem(isRoutine, prefix) {
+    const formName = isRoutine ? 'routine' : 'event';
+    const title = document.getElementById(`${prefix}${formName}-title`).value.trim();
+    const time = document.getElementById(`${prefix}${formName}-time`).value;
+    if (!title || !time || (!isRoutine && !document.getElementById(`${prefix}event-date`).value)) {
+        await showModal('Missing Info', isRoutine
+            ? 'Please provide a time and activity name.'
+            : 'Please provide a date, time, and title.', 'alert');
         return;
     }
 
-    try {
-        const event = { isRoutine: false, date, time, type, title, timestamp: Date.now() };
-        const savedEvent = await saveSharedRecord('schedule', event);
-        scheduleList.push(savedEvent);
-        document.getElementById('event-time').value = '';
-        document.getElementById('event-title').value = '';
-        document.getElementById('event-form-container').classList.add('hidden');
-        renderSchedule();
-    } catch (error) {
-        console.error("Error adding event", error);
-        await showModal("Error", "Could not save this event.", "alert");
-    }
-});
-
-// Add Weekly Routine
-document.getElementById('btn-add-routine').addEventListener('click', async () => {
-    const day = parseInt(document.getElementById('routine-day').value);
-    const time = document.getElementById('routine-time').value;
-    const title = document.getElementById('routine-title').value.trim();
-
-    if (!time || !title) {
-        await showModal("Missing Info", "Please provide a time and activity name.", "alert");
-        return;
+    const type = isRoutine ? 'routine' : document.getElementById(`${prefix}event-type`).value;
+    const existingItem = scheduleList.find(existing => existing.id === editingScheduleItemId);
+    const item = {
+        ...existingItem,
+        isRoutine,
+        time,
+        type,
+        title,
+        icon: document.getElementById(`${prefix}${formName}-icon`).value,
+        color: document.getElementById(`${prefix}${formName}-color`).value,
+        timestamp: Date.now()
+    };
+    if (isRoutine) {
+        item.day = Number(document.getElementById(`${prefix}routine-day`).value);
+    } else {
+        item.date = document.getElementById(`${prefix}event-date`).value;
     }
 
     try {
-        const routine = { isRoutine: true, day, time, type: 'routine', title, timestamp: Date.now() };
-        const savedRoutine = await saveSharedRecord('schedule', routine);
-        scheduleList.push(savedRoutine);
-        document.getElementById('routine-time').value = '';
-        document.getElementById('routine-title').value = '';
-        document.getElementById('routine-form-container').classList.add('hidden');
+        const id = editingScheduleItemId;
+        const savedItem = await saveSharedRecord('schedule', item, id || undefined);
+        scheduleList = id
+            ? scheduleList.map(existing => existing.id === id ? savedItem : existing)
+            : [...scheduleList, savedItem];
+        document.getElementById(`${prefix}${formName}-time`).value = '';
+        document.getElementById(`${prefix}${formName}-title`).value = '';
+        if (!isRoutine) document.getElementById(`${prefix}event-date`).value = '';
+        resetScheduleForm(prefix, isRoutine);
         renderSchedule();
     } catch (error) {
-        console.error("Error adding routine", error);
-        await showModal("Error", "Could not save this weekly routine.", "alert");
+        console.error(`Error saving ${isRoutine ? 'routine' : 'event'}`, error);
+        await showModal('Error', `Could not save this ${isRoutine ? 'weekly routine' : 'event'}.`, 'alert');
     }
-});
+}
+
+function editScheduleItem(item) {
+    const prefix = currentUserRole === 'parent' ? 'parent-' : '';
+    const isRoutine = item.isRoutine !== false;
+    const formName = isRoutine ? 'routine' : 'event';
+    const form = document.getElementById(`${prefix}${formName}-form-container`);
+    if (!form) return;
+    document.getElementById(`${prefix}event-form-container`)?.classList.add('hidden');
+    document.getElementById(`${prefix}routine-form-container`)?.classList.add('hidden');
+    form.classList.remove('hidden');
+    editingScheduleItemId = item.id;
+
+    document.getElementById(`${prefix}${formName}-time`).value = item.time || '';
+    document.getElementById(`${prefix}${formName}-title`).value = item.title || '';
+    document.getElementById(`${prefix}${formName}-icon`).value = getScheduleStyle(item).icon;
+    document.getElementById(`${prefix}${formName}-color`).value = getScheduleStyle(item).color;
+    if (isRoutine) {
+        document.getElementById(`${prefix}routine-day`).value = String(item.day ?? 1);
+    } else {
+        document.getElementById(`${prefix}event-date`).value = item.date || '';
+        document.getElementById(`${prefix}event-type`).value = scheduleStyles[item.type] ? item.type : 'other';
+    }
+    const button = document.getElementById(`${prefix}btn-add-${formName}`);
+    const heading = document.getElementById(`${prefix}${formName}-form-heading`);
+    if (button) button.textContent = isRoutine ? 'Update Routine' : 'Update Event';
+    if (heading) heading.textContent = isRoutine ? 'Edit Weekly Routine' : 'Edit Event';
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function setupScheduleForms(prefix) {
+    document.getElementById(`${prefix}show-event-form`).addEventListener('click', () => {
+        document.getElementById(`${prefix}event-form-container`).classList.toggle('hidden');
+        document.getElementById(`${prefix}routine-form-container`).classList.add('hidden');
+        editingScheduleItemId = null;
+        const button = document.getElementById(`${prefix}btn-add-event`);
+        if (button) button.textContent = 'Save Event';
+    });
+    document.getElementById(`${prefix}show-routine-form`).addEventListener('click', () => {
+        document.getElementById(`${prefix}routine-form-container`).classList.toggle('hidden');
+        document.getElementById(`${prefix}event-form-container`).classList.add('hidden');
+        editingScheduleItemId = null;
+        const button = document.getElementById(`${prefix}btn-add-routine`);
+        if (button) button.textContent = 'Save Weekly Routine';
+    });
+    document.getElementById(`${prefix}event-type`).addEventListener('change', event => {
+        setScheduleFormDefaults(prefix, event.target.value);
+    });
+    document.getElementById(`${prefix}btn-add-event`).addEventListener('click', () => saveScheduleItem(false, prefix));
+    document.getElementById(`${prefix}btn-add-routine`).addEventListener('click', () => saveScheduleItem(true, prefix));
+}
+
+setupScheduleForms('');
+setupScheduleForms('parent-');
 
 function getLocalDateString(d) {
     const year = d.getFullYear();
@@ -295,8 +370,12 @@ function renderMonthCalendar(month, headingId, gridId, previousId, nextId, selec
         events.slice(0, 3).forEach(event => {
             const eventLabel = document.createElement('span');
             eventLabel.className = 'month-calendar-event';
+            const style = getScheduleStyle(event);
+            eventLabel.style.backgroundColor = style.color;
+            eventLabel.style.color = getReadableTextColor(style.color);
             eventLabel.title = `${event.time || ''} ${event.title}`.trim();
-            eventLabel.textContent = `${event.time ? `${event.time} ` : ''}${event.title}`;
+            eventLabel.innerHTML = `<i class="fas fa-${style.icon}" aria-hidden="true"></i> `;
+            eventLabel.append(document.createTextNode(`${event.time ? `${event.time} ` : ''}${event.title}`));
             dayCell.appendChild(eventLabel);
         });
         if (events.length > 3) {
@@ -310,6 +389,16 @@ function renderMonthCalendar(month, headingId, gridId, previousId, nextId, selec
     }
 }
 
+function getReadableTextColor(hexColor) {
+    const color = hexColor.slice(1);
+    const channels = [0, 2, 4].map(index => parseInt(color.slice(index, index + 2), 16) / 255);
+    const luminance = channels.map(channel => channel <= 0.03928
+        ? channel / 12.92
+        : ((channel + 0.055) / 1.055) ** 2.4)
+        .reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);
+    return luminance > 0.38 ? '#111827' : '#ffffff';
+}
+
 function getScheduleEventsForDate(dateString) {
     const date = new Date(`${dateString}T00:00:00`);
     return scheduleList
@@ -319,7 +408,7 @@ function getScheduleEventsForDate(dateString) {
         .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 }
 
-function renderSelectedDaySchedule(headingId, containerId, dateString, canDelete) {
+function renderSelectedDaySchedule(headingId, containerId, dateString, canManage) {
     const heading = document.getElementById(headingId);
     const container = document.getElementById(containerId);
     if (!heading || !container) return;
@@ -363,14 +452,33 @@ function renderSelectedDaySchedule(headingId, containerId, dateString, canDelete
         details.append(title, metadata);
         row.appendChild(details);
 
-        if (canDelete && event.id) {
+        const style = getScheduleStyle(event);
+        row.style.borderLeft = `4px solid ${style.color}`;
+        row.style.backgroundColor = `${style.color}12`;
+        const icon = document.createElement('i');
+        icon.className = `fas fa-${style.icon} mt-1`;
+        icon.style.color = style.color;
+        icon.setAttribute('aria-hidden', 'true');
+        row.insertBefore(icon, details);
+
+        if (canManage && event.id) {
+            const actions = document.createElement('div');
+            actions.className = 'flex shrink-0 items-center gap-2';
+            const editButton = document.createElement('button');
+            editButton.type = 'button';
+            editButton.className = 'btn-edit-schedule text-indigo-600 hover:text-indigo-800 p-1';
+            editButton.dataset.id = event.id;
+            editButton.setAttribute('aria-label', `Edit ${event.title || 'schedule item'}`);
+            editButton.innerHTML = '<i class="fas fa-pen" aria-hidden="true"></i>';
+            actions.appendChild(editButton);
             const deleteButton = document.createElement('button');
             deleteButton.type = 'button';
             deleteButton.className = 'btn-del-schedule shrink-0 text-red-500 hover:text-red-700 p-1';
             deleteButton.dataset.id = event.id;
             deleteButton.setAttribute('aria-label', `Delete ${event.title || 'schedule item'}`);
             deleteButton.innerHTML = '<i class="fas fa-trash-alt" aria-hidden="true"></i>';
-            row.appendChild(deleteButton);
+            actions.appendChild(deleteButton);
+            row.appendChild(actions);
         }
         container.appendChild(row);
     });
@@ -398,19 +506,30 @@ function renderSchedule() {
     renderParentSchedule();
 }
 
-document.getElementById('calendar-day-schedule').addEventListener('click', async event => {
-    const button = event.target.closest('.btn-del-schedule');
+async function handleScheduleActions(event) {
+    const editButton = event.target.closest('.btn-edit-schedule');
+    const deleteButton = event.target.closest('.btn-del-schedule');
+    const button = editButton || deleteButton;
     if (!button) return;
-    const id = button.dataset.id;
+    const item = scheduleList.find(scheduleItem => scheduleItem.id === button.dataset.id);
+    if (!item) return;
+    if (editButton) {
+        editScheduleItem(item);
+        return;
+    }
+
     try {
-        await apiRequest(`/api/data/schedule/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        scheduleList = scheduleList.filter(item => item.id !== id);
+        await apiRequest(`/api/data/schedule/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+        scheduleList = scheduleList.filter(scheduleItem => scheduleItem.id !== item.id);
         renderSchedule();
     } catch (error) {
         console.error('Error deleting schedule event', error);
         await showModal('Error', 'Could not delete this schedule item.', 'alert');
     }
-});
+}
+
+document.getElementById('calendar-day-schedule').addEventListener('click', handleScheduleActions);
+document.getElementById('parent-calendar-day-schedule').addEventListener('click', handleScheduleActions);
 
 // --- Parent View Handlers ---
 function getMoodEmoji(moodText) {
@@ -540,7 +659,7 @@ function renderParentSchedule() {
         'parent-calendar-day-heading',
         'parent-calendar-day-schedule',
         parentCalendarSelectedDate,
-        false
+        true
     );
 }
 
@@ -927,6 +1046,7 @@ async function fetchFootballFixtures(league, selectedTeam, source, type) {
             time: kickoff.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             type,
             title,
+            ...scheduleStyles[type],
             venue: competition?.venue?.fullName || '',
             timestamp: kickoff.getTime()
         };
@@ -983,6 +1103,7 @@ async function fetchF1Schedule() {
             time: sessionDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             type: 'f1',
             title: `${label} - ${race.raceName}`,
+            ...scheduleStyles.f1,
             venue: race.Circuit?.circuitName || '',
             timestamp: sessionDate.getTime()
         }];
@@ -1015,9 +1136,13 @@ async function syncOnlineSchedules(plTeam, laligaTeam) {
     }
 
     const succeededSources = succeeded.map(result => result.source);
-    const importedEvents = succeeded.flatMap(result => result.events);
+    const syncedEvents = succeeded.flatMap(result => result.events);
     const sharedData = await apiRequest('/api/data');
     const currentEvents = sharedData.schedule || [];
+    const importedEvents = syncedEvents.map(event => {
+        const existing = currentEvents.find(item => item.id === event.id);
+        return existing ? { ...event, color: existing.color || event.color, icon: existing.icon || event.icon } : event;
+    });
     const obsoleteEvents = currentEvents.filter(event => event.isAutoSync
         && (!event.source || succeededSources.includes(event.source)));
     await Promise.all(obsoleteEvents.map(event =>
@@ -1065,6 +1190,8 @@ function renderTasks() {
     tasksList.forEach(task => {
         const li = document.createElement('li');
         li.className = `flex items-center gap-3 p-3 rounded-xl border transition-colors ${task.completed ? 'bg-gray-50 border-gray-100 opacity-60' : 'bg-white border-gray-200'}`;
+        const color = /^#[0-9a-f]{6}$/i.test(task.color || '') ? task.color : '#3b82f6';
+        li.style.borderLeft = `4px solid ${color}`;
         li.innerHTML = `
             <button class="text-xl btn-toggle-task ${task.completed ? 'text-blue-500' : 'text-gray-300 hover:text-gray-400'}" data-id="${task.id}" data-val="${task.completed}">
                 <i class="${task.completed ? 'fas fa-check-circle' : 'far fa-circle'}"></i>
@@ -1112,7 +1239,12 @@ document.getElementById('btn-add-task').addEventListener('click', async () => {
     const text = input.value.trim();
     if (!text) return;
     try {
-        const task = { text, completed: false, timestamp: Date.now() };
+        const task = {
+            text,
+            color: document.getElementById('new-task-color').value,
+            completed: false,
+            timestamp: Date.now()
+        };
         tasksList.push(await saveSharedRecord('tasks', task));
         renderTasks();
         input.value = '';

@@ -185,6 +185,8 @@
                 <h2 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-list-check text-blue-500 mr-2"></i>Homework To-Do</h2>
                 <div class="flex gap-2 mb-4">
                     <input type="text" id="new-task-input" class="flex-1 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Add a new task...">
+                    <label class="sr-only" for="new-task-color">Task color</label>
+                    <input type="color" id="new-task-color" value="#3b82f6" class="w-12 h-12 p-1 border border-gray-200 rounded-xl" title="Task color">
                     <button id="btn-add-task" class="bg-blue-600 text-white px-5 rounded-xl font-semibold hover:bg-blue-700"><i class="fas fa-plus"></i></button>
                 </div>
                 <ul id="tasks-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -230,6 +232,23 @@
                             <input type="text" id="event-title" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" placeholder="e.g. Arsenal vs Spurs">
                         </div>
                     </div>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Icon</label>
+                            <select id="event-icon" class="w-full p-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                                <option value="calendar-day">Calendar</option>
+                                <option value="futbol">Football</option>
+                                <option value="car">Race car</option>
+                                <option value="flag-checkered">Racing</option>
+                                <option value="book">School</option>
+                                <option value="star">Star</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Color</label>
+                            <input type="color" id="event-color" value="#10b981" class="w-full h-10 p-1 border border-gray-200 rounded-lg bg-white">
+                        </div>
+                    </div>
                     <button id="btn-add-event" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-semibold hover:bg-emerald-700 transition-colors text-sm shadow-md">
                         Save Event
                     </button>
@@ -259,6 +278,23 @@
                     <div class="mb-3">
                         <label class="block text-xs text-gray-500 mb-1">Activity Name</label>
                         <input type="text" id="routine-title" class="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="e.g. Piano Lesson">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Icon</label>
+                            <select id="routine-icon" class="w-full p-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                                <option value="calendar-day">Calendar</option>
+                                <option value="futbol">Football</option>
+                                <option value="car">Race car</option>
+                                <option value="flag-checkered">Racing</option>
+                                <option value="book">School</option>
+                                <option value="star">Star</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Color</label>
+                            <input type="color" id="routine-color" value="#6366f1" class="w-full h-10 p-1 border border-gray-200 rounded-lg bg-white">
+                        </div>
                     </div>
                     <button id="btn-add-routine" class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-semibold hover:bg-indigo-700 transition-colors text-sm shadow-md">
                         Save Weekly Routine

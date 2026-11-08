@@ -37,5 +37,75 @@
                     <h4 id="parent-calendar-day-heading" class="font-semibold text-gray-700 mb-3"></h4>
                     <div id="parent-calendar-day-schedule" class="space-y-2"></div>
                 </section>
+                <section class="mt-5 border-t border-gray-100 pt-4">
+                    <div class="flex gap-2 mb-4">
+                        <button id="parent-show-event-form" type="button" class="flex-1 bg-emerald-50 text-emerald-700 py-2 rounded-xl font-semibold border border-emerald-200 text-sm">
+                            <i class="fas fa-calendar-day mr-1"></i> Add Event
+                        </button>
+                        <button id="parent-show-routine-form" type="button" class="flex-1 bg-indigo-50 text-indigo-700 py-2 rounded-xl font-semibold border border-indigo-200 text-sm">
+                            <i class="fas fa-sync mr-1"></i> Add Routine
+                        </button>
+                    </div>
+                    <div id="parent-event-form-container" class="hidden mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                        <h4 id="parent-event-form-heading" class="text-sm font-semibold text-gray-700 mb-3">New Event</h4>
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <label class="text-xs text-gray-500">Date
+                                <input type="date" id="parent-event-date" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
+                            </label>
+                            <label class="text-xs text-gray-500">Time
+                                <input type="time" id="parent-event-time" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
+                            </label>
+                            <label class="text-xs text-gray-500">Type
+                                <select id="parent-event-type" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="pl">Premier League</option>
+                                    <option value="laliga">La Liga</option>
+                                    <option value="f1">F1 Race</option>
+                                    <option value="class">School / Class</option>
+                                    <option value="other">Other Event</option>
+                                </select>
+                            </label>
+                            <label class="text-xs text-gray-500">Title
+                                <input type="text" id="parent-event-title" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white" placeholder="Event title">
+                            </label>
+                            <label class="text-xs text-gray-500">Icon
+                                <select id="parent-event-icon" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="calendar-day">Calendar</option><option value="futbol">Football</option>
+                                    <option value="car">Race car</option><option value="flag-checkered">Racing</option><option value="book">School</option><option value="star">Star</option>
+                                </select>
+                            </label>
+                            <label class="text-xs text-gray-500">Color
+                                <input type="color" id="parent-event-color" value="#10b981" class="mt-1 w-full h-10 p-1 border border-gray-200 rounded-lg bg-white">
+                            </label>
+                        </div>
+                        <button id="parent-btn-add-event" type="button" class="w-full bg-emerald-600 text-white py-2 rounded-lg font-semibold text-sm">Save Event</button>
+                    </div>
+                    <div id="parent-routine-form-container" class="hidden p-4 bg-gray-50 rounded-xl border border-gray-200">
+                        <h4 id="parent-routine-form-heading" class="text-sm font-semibold text-gray-700 mb-3">New Weekly Routine</h4>
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <label class="text-xs text-gray-500">Day
+                                <select id="parent-routine-day" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+                                    <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
+                                </select>
+                            </label>
+                            <label class="text-xs text-gray-500">Time
+                                <input type="time" id="parent-routine-time" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
+                            </label>
+                            <label class="text-xs text-gray-500 col-span-2">Activity
+                                <input type="text" id="parent-routine-title" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white" placeholder="Activity name">
+                            </label>
+                            <label class="text-xs text-gray-500">Icon
+                                <select id="parent-routine-icon" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="calendar-day">Calendar</option><option value="futbol">Football</option>
+                                    <option value="car">Race car</option><option value="flag-checkered">Racing</option><option value="book">School</option><option value="star">Star</option>
+                                </select>
+                            </label>
+                            <label class="text-xs text-gray-500">Color
+                                <input type="color" id="parent-routine-color" value="#6366f1" class="mt-1 w-full h-10 p-1 border border-gray-200 rounded-lg bg-white">
+                            </label>
+                        </div>
+                        <button id="parent-btn-add-routine" type="button" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold text-sm">Save Routine</button>
+                    </div>
+                </section>
             </section>
         </div>

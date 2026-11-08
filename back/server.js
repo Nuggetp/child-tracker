@@ -143,12 +143,11 @@ async function handleDataRequest(request, response, requestUrl, role) {
         return;
     }
 
-    if (role !== 'child') {
-        sendJson(response, 403, { error: 'Only the child profile can change app data.' });
-        return;
-    }
-
     if (request.method === 'POST' && requestUrl.pathname === '/api/data/import') {
+        if (role !== 'child') {
+            sendJson(response, 403, { error: 'Only the child profile can import browser data.' });
+            return;
+        }
         const records = await readJsonBody(request);
         if (!isValidRecord(records)) {
             sendJson(response, 400, { error: 'A JSON object is required.' });
@@ -199,6 +198,11 @@ async function handleDataRequest(request, response, requestUrl, role) {
     }
 
     const [, collectionName, rawId] = match;
+    if (role !== 'child' && !(role === 'parent' && collectionName === 'schedule')) {
+        sendJson(response, 403, { error: 'Only the child profile can change this data.' });
+        return;
+    }
+
     let id;
     try {
         id = rawId ? decodeURIComponent(rawId) : null;
