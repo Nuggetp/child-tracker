@@ -237,6 +237,49 @@ async function handleDataRequest(request, response, requestUrl, role) {
     sendJson(response, 405, { error: 'Unsupported data operation.' });
 }
 
+async function handleParentLogComment(request, response, requestUrl, role) {
+    if (role !== 'parent') {
+        sendJson(response, 403, { error: 'Only the parent profile can update log comments.' });
+        return;
+    }
+    if (request.method !== 'PUT') {
+        sendJson(response, 405, { error: 'Only PUT requests are supported for log comments.' });
+        return;
+    }
+
+    const match = requestUrl.pathname.match(/^\/api\/logs\/([^/]+)\/comment$/);
+    let id;
+    try {
+        id = match ? decodeURIComponent(match[1]) : null;
+    } catch {
+        sendJson(response, 400, { error: 'Invalid log ID.' });
+        return;
+    }
+    if (!isValidRecordId(id)) {
+        sendJson(response, 400, { error: 'Invalid log ID.' });
+        return;
+    }
+
+    const body = await readJsonBody(request);
+    if (!isValidRecord(body) || typeof body.comment !== 'string' || body.comment.length > 2000) {
+        sendJson(response, 400, { error: 'A comment of up to 2000 characters is required.' });
+        return;
+    }
+
+    const result = await pool.query(
+        `UPDATE app_data
+         SET data = jsonb_set(data, '{parentComment}', to_jsonb($2::text), true)
+         WHERE collection = 'logs' AND id = $1
+         RETURNING id, data`,
+        [id, body.comment.trim()]
+    );
+    if (!result.rowCount) {
+        sendJson(response, 404, { error: 'Log not found.' });
+        return;
+    }
+    sendJson(response, 200, { id, ...result.rows[0].data });
+}
+
 async function proxyJson(response, url) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
@@ -325,6 +368,16 @@ const server = http.createServer(async (request, response) => {
         if (requestUrl.pathname === '/api/logout' && request.method === 'POST') {
             setSessionCookie(request, response, '', 0);
             sendJson(response, 200, { success: true });
+            return;
+        }
+
+        if (requestUrl.pathname.startsWith('/api/logs/')) {
+            const role = getSessionRole(request);
+            if (!role) {
+                sendJson(response, 401, { error: 'Please log in to update log comments.' });
+                return;
+            }
+            await handleParentLogComment(request, response, requestUrl, role);
             return;
         }
 

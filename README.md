@@ -29,11 +29,12 @@ shared database.
    devices can then sign in with the same profile PINs to see the shared data.
 
 Choose private PINs that are difficult to guess, and keep them and the session
-secret private. Parent sessions can view shared records; only child sessions
-can add, edit, or delete them. Keep the Supabase project and its backups when
-changing or redeploying the Render web service; the data is not stored on the
-web service's filesystem. Check Supabase's current free-tier limits and
-inactivity rules.
+secret private. Parent sessions can view shared records, manage calendar
+events/routines, and add comments to daily logs; only child sessions can
+otherwise add, edit, or delete shared records. Keep the Supabase project and
+its backups when changing or redeploying the Render web service; app data is
+stored in Supabase, not on the web service's filesystem. Check Supabase's
+current free-tier limits and inactivity rules.
 
 ## Install as an app
 
@@ -48,6 +49,9 @@ Both child and parent profiles can add, edit, and delete calendar events and
 weekly routines. Events can use a selectable icon and color; synced Premier
 League, La Liga, and F1 items use their own default icons and colors. Tasks can
 also be assigned a color when created.
+
+Parents can add a comment to each existing daily log. The child sees the
+comment when opening today's log.
 
 ## Run locally
 

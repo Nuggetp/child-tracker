@@ -542,6 +542,8 @@ function getMoodEmoji(moodText) {
 function renderParentLogs() {
     const container = document.getElementById('parent-logs-container');
     const count = document.getElementById('parent-logs-count');
+    if (container.contains(document.activeElement)
+        && document.activeElement.matches('.parent-comment-input')) return;
 
     container.innerHTML = '';
     count.textContent = `${logsList.length} logs found`;
@@ -625,9 +627,54 @@ function renderParentLogs() {
                 </div>
             </div>
         `;
+        const commentSection = document.createElement('section');
+        commentSection.className = 'border-t border-gray-100 p-4';
+        const commentLabel = document.createElement('label');
+        commentLabel.className = 'block text-sm font-semibold text-gray-700 mb-2';
+        commentLabel.textContent = 'Parent comment';
+        const commentInput = document.createElement('textarea');
+        commentInput.className = 'parent-comment-input w-full p-3 border border-gray-200 rounded-xl text-sm resize-y';
+        commentInput.rows = 2;
+        commentInput.maxLength = 2000;
+        commentInput.placeholder = 'Write a supportive note about this day...';
+        commentInput.value = log.parentComment || '';
+        commentInput.dataset.logId = log.id;
+        commentLabel.appendChild(commentInput);
+        const saveCommentButton = document.createElement('button');
+        saveCommentButton.type = 'button';
+        saveCommentButton.className = 'btn-save-parent-comment mt-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold';
+        saveCommentButton.dataset.logId = log.id;
+        saveCommentButton.textContent = 'Save comment';
+        commentSection.append(commentLabel, saveCommentButton);
+        card.appendChild(commentSection);
         container.appendChild(card);
     });
 }
+
+document.getElementById('parent-logs-container').addEventListener('click', async event => {
+    const button = event.target.closest('.btn-save-parent-comment');
+    if (!button) return;
+    const input = button.closest('section')?.querySelector('.parent-comment-input');
+    const logId = button.dataset.logId;
+    if (!input || !logId) return;
+
+    button.disabled = true;
+    button.textContent = 'Saving...';
+    try {
+        const savedLog = await apiRequest(`/api/logs/${encodeURIComponent(logId)}/comment`, {
+            method: 'PUT',
+            body: JSON.stringify({ comment: input.value })
+        });
+        logsList = logsList.map(log => log.id === logId ? savedLog : log);
+        renderParentLogs();
+        await showModal('Comment saved', 'Your comment was added to the child’s log.', 'alert');
+    } catch (error) {
+        console.error('Could not save parent log comment.', error);
+        button.disabled = false;
+        button.textContent = 'Save comment';
+        await showModal('Error', error.message || 'Could not save this comment.', 'alert');
+    }
+});
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, character => ({
@@ -799,6 +846,9 @@ document.getElementById('btn-goto-log').addEventListener('click', () => {
         document.getElementById('input-interesting').value = todaysLog.interesting || '';
         document.getElementById('input-happened').value = todaysLog.happened || '';
     }
+    const parentCommentDisplay = document.getElementById('parent-comment-display');
+    parentCommentDisplay.classList.toggle('hidden', !todaysLog?.parentComment);
+    document.getElementById('parent-comment-text').textContent = todaysLog?.parentComment || '';
     freeVal.textContent = `${document.getElementById('input-free').value}/10`;
     stressVal.textContent = `${document.getElementById('input-stress').value}/10`;
     document.getElementById('btn-save-log').textContent = todaysLog ? "Update Today's Log" : "Save Today's Log";
@@ -870,6 +920,7 @@ document.getElementById('log-form').addEventListener('submit', async (e) => {
         testResult: document.getElementById('input-test-result').value,
         interesting: document.getElementById('input-interesting').value,
         happened: document.getElementById('input-happened').value,
+        parentComment: existingLog?.parentComment || '',
         timestamp: Date.now(),
         dateStr: new Date().toLocaleDateString()
     };

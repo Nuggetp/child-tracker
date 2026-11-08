@@ -1,4 +1,4 @@
-const CACHE_NAME = 'child-status-shell-v2';
+const CACHE_NAME = 'child-status-shell-v3';
 const APP_SHELL = [
     '/',
     '/main.html',
