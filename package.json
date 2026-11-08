@@ -1,9 +1,9 @@
 {
   "name": "child-status-app",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "back/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node back/server.js"
   },
   "dependencies": {
     "pg": "^8.23.1"

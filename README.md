@@ -1,5 +1,9 @@
 # Child Status App
 
+The browser app files are in `public/`, and the Node.js server is in `back/`.
+The root `package.json` and `package-lock.json` are kept at the project root so
+Render can install dependencies and start the service with `npm start`.
+
 ## Deploy with shared data on Render and Supabase
 
 The app stores shared records in PostgreSQL. Browser storage is only read once

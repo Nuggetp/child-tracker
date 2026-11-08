@@ -4,7 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
 
-const root = __dirname;
+const root = path.resolve(__dirname, '..', 'public');
 const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 4173);
 const allowedLeagues = new Set(['eng.1', 'esp.1']);
