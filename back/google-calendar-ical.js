@@ -24,6 +24,72 @@ function validateCalendarUrl(value) {
     return url.toString();
 }
 
+function isAllowedCalendarRedirect(url) {
+    return url.protocol === 'https:'
+        && !url.port
+        && !url.username
+        && !url.password
+        && (url.hostname === 'calendar.google.com'
+            || url.hostname === 'calendar.googleusercontent.com'
+            || url.hostname.endsWith('.googleusercontent.com'));
+}
+
+async function readCalendarResponse(response, maxBytes) {
+    if (!response.body) return '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let result = '';
+    let size = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxBytes) {
+            await reader.cancel();
+            throw Object.assign(new Error('The Google Calendar iCal feed is too large to import.'), { status: 502 });
+        }
+        result += decoder.decode(value, { stream: true });
+    }
+    return result + decoder.decode();
+}
+
+async function fetchCalendarFeed(value, { signal, fetchImpl = fetch } = {}) {
+    let url = validateCalendarUrl(value);
+    for (let redirectCount = 0; redirectCount <= 5; redirectCount++) {
+        const response = await fetchImpl(url, {
+            signal,
+            redirect: 'manual',
+            headers: { Accept: 'text/calendar, text/plain;q=0.9' }
+        });
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+            const location = response.headers.get('location');
+            await response.body?.cancel();
+            if (!location || redirectCount === 5) {
+                throw Object.assign(new Error('Google Calendar returned too many redirects. Check the private iCal link.'), { status: 502 });
+            }
+            const redirectUrl = new URL(location, url);
+            if (!isAllowedCalendarRedirect(redirectUrl)) {
+                throw Object.assign(new Error('Google Calendar redirected to an unsupported address.'), { status: 502 });
+            }
+            url = redirectUrl.toString();
+            continue;
+        }
+        if (!response.ok) {
+            throw Object.assign(new Error(`Google Calendar returned HTTP ${response.status}. Check that the private iCal link is current.`), { status: 502 });
+        }
+        const contentLength = Number(response.headers.get('content-length'));
+        if (Number.isFinite(contentLength) && contentLength > 5 * 1024 * 1024) {
+            throw Object.assign(new Error('The Google Calendar iCal feed is too large to import.'), { status: 502 });
+        }
+        const calendarText = await readCalendarResponse(response, 5 * 1024 * 1024);
+        if (!calendarText.includes('BEGIN:VCALENDAR')) {
+            throw Object.assign(new Error('Google did not return a valid iCalendar feed. Check the private iCal link.'), { status: 502 });
+        }
+        return calendarText;
+    }
+    throw Object.assign(new Error('Could not follow the Google Calendar iCal link.'), { status: 502 });
+}
+
 function unfoldCalendarLines(calendarText) {
     return calendarText.replace(/\r?\n[ \t]/g, '').split(/\r?\n/);
 }
@@ -199,4 +265,4 @@ function importCalendarEvents(calendarText, startDate, endDate) {
     });
 }
 
-module.exports = { importCalendarEvents, validateCalendarUrl };
+module.exports = { fetchCalendarFeed, importCalendarEvents, validateCalendarUrl };

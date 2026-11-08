@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
-const { importCalendarEvents, validateCalendarUrl } = require('./google-calendar-ical');
+const { fetchCalendarFeed, importCalendarEvents, validateCalendarUrl } = require('./google-calendar-ical');
 
 const root = path.resolve(__dirname, '..', 'public');
 const host = process.env.HOST || '0.0.0.0';
@@ -129,25 +129,6 @@ function isValidRecordId(id) {
     return typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id);
 }
 
-async function readLimitedBody(response, maxBytes) {
-    if (!response.body) return '';
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let result = '';
-    let size = 0;
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > maxBytes) {
-            await reader.cancel();
-            throw Object.assign(new Error('The Google Calendar iCal feed is too large to import.'), { status: 502 });
-        }
-        result += decoder.decode(value, { stream: true });
-    }
-    return result + decoder.decode();
-}
-
 async function handleGoogleRequest(request, response, requestUrl, role) {
     if (role !== 'parent') {
         sendJson(response, 403, { error: 'Only the parent profile can manage Google Calendar.' });
@@ -196,41 +177,21 @@ async function handleGoogleRequest(request, response, requestUrl, role) {
         const timeout = setTimeout(() => controller.abort(), 15000);
         let responseBody;
         try {
-            const upstream = await fetch(calendarUrl, {
-                signal: controller.signal,
-                redirect: 'manual'
-            });
-            if (upstream.status >= 300 && upstream.status < 400) {
-                sendJson(response, 502, { error: 'Google Calendar redirected the iCal link. Save the private link again.' });
-                return;
-            }
-            if (!upstream.ok) {
-                sendJson(response, 502, { error: 'Could not download the Google Calendar iCal feed.' });
-                return;
-            }
-            const length = Number(upstream.headers.get('content-length'));
-            if (Number.isFinite(length) && length > 5 * 1024 * 1024) {
-                sendJson(response, 502, { error: 'The Google Calendar iCal feed is too large to import.' });
-                return;
-            }
-            responseBody = await readLimitedBody(upstream, 5 * 1024 * 1024);
+            responseBody = await fetchCalendarFeed(calendarUrl, { signal: controller.signal });
         } catch (error) {
             if (error.name === 'AbortError') {
-                sendJson(response, 504, { error: 'Google Calendar took too long to respond.' });
+                sendJson(response, 504, { error: 'Google Calendar took too long to respond. Try syncing again in a moment.' });
                 return;
             }
             if (error.status) {
                 sendJson(response, error.status, { error: error.message });
                 return;
             }
+            console.error('Could not fetch Google Calendar iCal feed.', error);
             sendJson(response, 502, { error: 'Could not download the Google Calendar iCal feed.' });
             return;
         } finally {
             clearTimeout(timeout);
-        }
-        if (responseBody.length > 5 * 1024 * 1024) {
-            sendJson(response, 502, { error: 'The Google Calendar iCal feed is too large to import.' });
-            return;
         }
 
         const today = new Date();
