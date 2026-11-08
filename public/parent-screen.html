@@ -26,6 +26,28 @@
                         <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
+                <fieldset class="mb-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-gray-100 pt-3 text-xs text-gray-600">
+                    <legend class="sr-only">Calendar filters</legend>
+                    <label class="flex items-center gap-2"><input id="parent-filter-weekly" class="calendar-filter" data-filter="weekly" type="checkbox" checked> Weekly events</label>
+                    <label class="flex items-center gap-2"><input id="parent-filter-sports" class="calendar-filter" data-filter="sports" type="checkbox" checked> Sports</label>
+                    <label class="flex items-center gap-2"><input id="parent-filter-other" class="calendar-filter" data-filter="other" type="checkbox" checked> Specific events</label>
+                </fieldset>
+                <section class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <h4 class="text-sm font-semibold text-blue-900">Google Calendar</h4>
+                            <p id="google-calendar-status" class="text-xs text-blue-700">Checking connection...</p>
+                        </div>
+                        <button id="google-calendar-sync" type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white" disabled>Sync now</button>
+                    </div>
+                    <label class="mt-3 block text-xs font-medium text-blue-900" for="google-calendar-url">Private iCal link</label>
+                    <input id="google-calendar-url" type="password" autocomplete="off" spellcheck="false" class="mt-1 w-full rounded-lg border border-blue-200 bg-white p-2 text-xs" placeholder="Paste your Google Calendar private iCal URL">
+                    <div class="mt-2 flex gap-2">
+                        <button id="google-calendar-connect" type="button" class="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-blue-700 border border-blue-200">Save link</button>
+                        <button id="google-calendar-disconnect" type="button" class="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-red-600 border border-red-200 hidden">Disconnect</button>
+                    </div>
+                    <p class="mt-2 text-xs text-blue-700">The private link grants access to your calendar. Keep it secret. Sync imports events only; it does not change Google Calendar.</p>
+                </section>
                 <div class="month-calendar">
                     <div class="month-calendar-weekdays" aria-hidden="true">
                         <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
@@ -82,12 +104,18 @@
                     <div id="parent-routine-form-container" class="hidden p-4 bg-gray-50 rounded-xl border border-gray-200">
                         <h4 id="parent-routine-form-heading" class="text-sm font-semibold text-gray-700 mb-3">New Weekly Routine</h4>
                         <div class="grid grid-cols-2 gap-3 mb-3">
-                            <label class="text-xs text-gray-500">Day
-                                <select id="parent-routine-day" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
-                                    <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
-                                    <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
-                                </select>
-                            </label>
+                            <fieldset class="col-span-2">
+                                <legend class="text-xs text-gray-500 mb-2">Days of week</legend>
+                                <div class="grid grid-cols-4 gap-2 text-xs">
+                                    <label><input type="checkbox" name="parent-routine-days" value="1"> Mon</label>
+                                    <label><input type="checkbox" name="parent-routine-days" value="2"> Tue</label>
+                                    <label><input type="checkbox" name="parent-routine-days" value="3"> Wed</label>
+                                    <label><input type="checkbox" name="parent-routine-days" value="4"> Thu</label>
+                                    <label><input type="checkbox" name="parent-routine-days" value="5"> Fri</label>
+                                    <label><input type="checkbox" name="parent-routine-days" value="6"> Sat</label>
+                                    <label><input type="checkbox" name="parent-routine-days" value="0"> Sun</label>
+                                </div>
+                            </fieldset>
                             <label class="text-xs text-gray-500">Time
                                 <input type="time" id="parent-routine-time" class="mt-1 w-full p-2 border border-gray-200 rounded-lg text-sm bg-white">
                             </label>

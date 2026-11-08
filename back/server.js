@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
+const { importCalendarEvents, validateCalendarUrl } = require('./google-calendar-ical');
 
 const root = path.resolve(__dirname, '..', 'public');
 const host = process.env.HOST || '0.0.0.0';
@@ -128,6 +129,149 @@ function isValidRecordId(id) {
     return typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id);
 }
 
+async function readLimitedBody(response, maxBytes) {
+    if (!response.body) return '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let result = '';
+    let size = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxBytes) {
+            await reader.cancel();
+            throw Object.assign(new Error('The Google Calendar iCal feed is too large to import.'), { status: 502 });
+        }
+        result += decoder.decode(value, { stream: true });
+    }
+    return result + decoder.decode();
+}
+
+async function handleGoogleRequest(request, response, requestUrl, role) {
+    if (role !== 'parent') {
+        sendJson(response, 403, { error: 'Only the parent profile can manage Google Calendar.' });
+        return;
+    }
+
+    if (requestUrl.pathname === '/api/google/status' && request.method === 'GET') {
+        const result = await pool.query('SELECT EXISTS(SELECT 1 FROM google_calendar_ical WHERE id = 1) AS connected');
+        sendJson(response, 200, { connected: result.rows[0].connected });
+        return;
+    }
+
+    if (requestUrl.pathname === '/api/google/connect' && request.method === 'POST') {
+        const body = await readJsonBody(request);
+        if (!isValidRecord(body) || typeof body.url !== 'string' || body.url.length > 2048) {
+            sendJson(response, 400, { error: 'A Google Calendar private iCal URL is required.' });
+            return;
+        }
+        const calendarUrl = validateCalendarUrl(body.url.trim());
+        await pool.query(
+            `INSERT INTO google_calendar_ical (id, calendar_url, updated_at)
+             VALUES (1, $1, NOW())
+             ON CONFLICT (id) DO UPDATE
+             SET calendar_url = EXCLUDED.calendar_url, updated_at = EXCLUDED.updated_at`,
+            [calendarUrl]
+        );
+        sendJson(response, 200, { connected: true });
+        return;
+    }
+
+    if (requestUrl.pathname === '/api/google/disconnect' && request.method === 'POST') {
+        await pool.query('DELETE FROM google_calendar_ical WHERE id = 1');
+        await pool.query("DELETE FROM app_data WHERE collection = 'schedule' AND data->>'source' = 'google-calendar-ical'");
+        sendJson(response, 200, { connected: false });
+        return;
+    }
+
+    if (requestUrl.pathname === '/api/google/sync' && request.method === 'POST') {
+        const result = await pool.query('SELECT calendar_url FROM google_calendar_ical WHERE id = 1');
+        if (!result.rowCount) {
+            sendJson(response, 409, { error: 'Save a Google Calendar private iCal link before syncing.' });
+            return;
+        }
+        const calendarUrl = validateCalendarUrl(result.rows[0].calendar_url);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        let responseBody;
+        try {
+            const upstream = await fetch(calendarUrl, {
+                signal: controller.signal,
+                redirect: 'manual'
+            });
+            if (upstream.status >= 300 && upstream.status < 400) {
+                sendJson(response, 502, { error: 'Google Calendar redirected the iCal link. Save the private link again.' });
+                return;
+            }
+            if (!upstream.ok) {
+                sendJson(response, 502, { error: 'Could not download the Google Calendar iCal feed.' });
+                return;
+            }
+            const length = Number(upstream.headers.get('content-length'));
+            if (Number.isFinite(length) && length > 5 * 1024 * 1024) {
+                sendJson(response, 502, { error: 'The Google Calendar iCal feed is too large to import.' });
+                return;
+            }
+            responseBody = await readLimitedBody(upstream, 5 * 1024 * 1024);
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                sendJson(response, 504, { error: 'Google Calendar took too long to respond.' });
+                return;
+            }
+            if (error.status) {
+                sendJson(response, error.status, { error: error.message });
+                return;
+            }
+            sendJson(response, 502, { error: 'Could not download the Google Calendar iCal feed.' });
+            return;
+        } finally {
+            clearTimeout(timeout);
+        }
+        if (responseBody.length > 5 * 1024 * 1024) {
+            sendJson(response, 502, { error: 'The Google Calendar iCal feed is too large to import.' });
+            return;
+        }
+
+        const today = new Date();
+        const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 2, 1));
+        const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 13, 1));
+        const startDate = start.toISOString().slice(0, 10);
+        const endDate = end.toISOString().slice(0, 10);
+        const items = importCalendarEvents(responseBody, startDate, endDate);
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            await client.query(
+                `DELETE FROM app_data
+                 WHERE collection = 'schedule'
+                   AND data->>'source' = 'google-calendar-ical'
+                   AND data->>'date' >= $1 AND data->>'date' < $2`,
+                [startDate, endDate]
+            );
+            for (const item of items) {
+                const { id, ...data } = item;
+                await client.query(
+                    `INSERT INTO app_data (collection, id, data)
+                     VALUES ('schedule', $1, $2)
+                     ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data`,
+                    [id, data]
+                );
+            }
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+        sendJson(response, 200, { eventCount: items.length, events: items, startDate, endDate });
+        return;
+    }
+
+    sendJson(response, 405, { error: 'Unsupported Google Calendar operation.' });
+}
+
 async function handleDataRequest(request, response, requestUrl, role) {
     if (request.method === 'GET' && requestUrl.pathname === '/api/data') {
         const result = await pool.query('SELECT collection, id, data FROM app_data ORDER BY id');
@@ -217,6 +361,16 @@ async function handleDataRequest(request, response, requestUrl, role) {
             sendJson(response, 400, { error: 'A JSON object is required.' });
             return;
         }
+        if (collectionName === 'schedule') {
+            const existing = await pool.query(
+                'SELECT data->>\'isReadOnly\' AS read_only FROM app_data WHERE collection = $1 AND id = $2',
+                [collectionName, id]
+            );
+            if (existing.rows[0]?.read_only === 'true') {
+                sendJson(response, 403, { error: 'Google Calendar events are read-only in this app.' });
+                return;
+            }
+        }
         delete record.id;
         await pool.query(
             `INSERT INTO app_data (collection, id, data)
@@ -229,6 +383,16 @@ async function handleDataRequest(request, response, requestUrl, role) {
     }
 
     if (request.method === 'DELETE' && id && isValidRecordId(id)) {
+        if (collectionName === 'schedule') {
+            const existing = await pool.query(
+                'SELECT data->>\'isReadOnly\' AS read_only FROM app_data WHERE collection = $1 AND id = $2',
+                [collectionName, id]
+            );
+            if (existing.rows[0]?.read_only === 'true') {
+                sendJson(response, 403, { error: 'Google Calendar events are read-only in this app.' });
+                return;
+            }
+        }
         await pool.query('DELETE FROM app_data WHERE collection = $1 AND id = $2', [collectionName, id]);
         sendJson(response, 200, { success: true });
         return;
@@ -371,6 +535,16 @@ const server = http.createServer(async (request, response) => {
             return;
         }
 
+        if (requestUrl.pathname.startsWith('/api/google/')) {
+            const role = getSessionRole(request);
+            if (!role) {
+                sendJson(response, 401, { error: 'Please log in as a parent to manage Google Calendar.' });
+                return;
+            }
+            await handleGoogleRequest(request, response, requestUrl, role);
+            return;
+        }
+
         if (requestUrl.pathname.startsWith('/api/logs/')) {
             const role = getSessionRole(request);
             if (!role) {
@@ -470,6 +644,11 @@ async function startServer() {
         id TEXT NOT NULL,
         data JSONB NOT NULL,
         PRIMARY KEY (collection, id)
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS google_calendar_ical (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        calendar_url TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     server.listen(port, host, () => {
         console.log(`Child Status App running at http://${host}:${port}/`);

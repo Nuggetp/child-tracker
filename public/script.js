@@ -155,9 +155,11 @@ const scheduleStyles = {
     f1: { color: '#e10600', icon: 'car' },
     class: { color: '#2563eb', icon: 'book' },
     routine: { color: '#6366f1', icon: 'calendar-day' },
+    google: { color: '#4285f4', icon: 'calendar-day' },
     other: { color: '#10b981', icon: 'star' }
 };
 const availableScheduleIcons = new Set(['calendar-day', 'futbol', 'flag-checkered', 'car', 'book', 'star']);
+const scheduleVisibility = { weekly: true, sports: true, other: true };
 let editingScheduleItemId = null;
 
 function getScheduleStyle(item) {
@@ -184,6 +186,11 @@ function resetScheduleForm(prefix, isRoutine) {
     if (form) form.classList.add('hidden');
     if (button) button.textContent = isRoutine ? 'Save Weekly Routine' : 'Save Event';
     if (heading) heading.textContent = isRoutine ? 'New Weekly Routine' : 'New Event';
+    if (isRoutine) {
+        document.querySelectorAll(`input[name="${prefix}routine-days"]`).forEach(input => {
+            input.checked = false;
+        });
+    }
     editingScheduleItemId = null;
 }
 
@@ -191,9 +198,13 @@ async function saveScheduleItem(isRoutine, prefix) {
     const formName = isRoutine ? 'routine' : 'event';
     const title = document.getElementById(`${prefix}${formName}-title`).value.trim();
     const time = document.getElementById(`${prefix}${formName}-time`).value;
-    if (!title || !time || (!isRoutine && !document.getElementById(`${prefix}event-date`).value)) {
+    const selectedDays = isRoutine
+        ? [...document.querySelectorAll(`input[name="${prefix}routine-days"]:checked`)].map(input => Number(input.value))
+        : [];
+    if (!title || !time || (!isRoutine && !document.getElementById(`${prefix}event-date`).value)
+        || (isRoutine && selectedDays.length === 0)) {
         await showModal('Missing Info', isRoutine
-            ? 'Please provide a time and activity name.'
+            ? 'Please provide a time, activity name, and at least one day.'
             : 'Please provide a date, time, and title.', 'alert');
         return;
     }
@@ -211,7 +222,8 @@ async function saveScheduleItem(isRoutine, prefix) {
         timestamp: Date.now()
     };
     if (isRoutine) {
-        item.day = Number(document.getElementById(`${prefix}routine-day`).value);
+        item.days = selectedDays;
+        item.day = selectedDays[0];
     } else {
         item.date = document.getElementById(`${prefix}event-date`).value;
     }
@@ -249,7 +261,10 @@ function editScheduleItem(item) {
     document.getElementById(`${prefix}${formName}-icon`).value = getScheduleStyle(item).icon;
     document.getElementById(`${prefix}${formName}-color`).value = getScheduleStyle(item).color;
     if (isRoutine) {
-        document.getElementById(`${prefix}routine-day`).value = String(item.day ?? 1);
+        const selectedDays = getRoutineDays(item);
+        document.querySelectorAll(`input[name="${prefix}routine-days"]`).forEach(input => {
+            input.checked = selectedDays.includes(Number(input.value));
+        });
     } else {
         document.getElementById(`${prefix}event-date`).value = item.date || '';
         document.getElementById(`${prefix}event-type`).value = scheduleStyles[item.type] ? item.type : 'other';
@@ -285,6 +300,34 @@ function setupScheduleForms(prefix) {
 
 setupScheduleForms('');
 setupScheduleForms('parent-');
+
+function getRoutineDays(item) {
+    const days = Array.isArray(item.days) && item.days.length ? item.days : [item.day];
+    return [...new Set(days.map(Number).filter(day => Number.isInteger(day) && day >= 0 && day <= 6))];
+}
+
+function isRoutine(item) {
+    return item.isRoutine !== false;
+}
+
+function getScheduleCategory(item) {
+    if (isRoutine(item)) return 'weekly';
+    if (['pl', 'laliga', 'f1'].includes(item.type) || item.source?.startsWith('espn-') || item.source === 'jolpi-f1') {
+        return 'sports';
+    }
+    return 'other';
+}
+
+function isScheduleItemVisible(item) {
+    return scheduleVisibility[getScheduleCategory(item)];
+}
+
+document.querySelectorAll('.calendar-filter').forEach(input => {
+    input.addEventListener('change', () => {
+        scheduleVisibility[input.dataset.filter] = input.checked;
+        renderSchedule();
+    });
+});
 
 function getLocalDateString(d) {
     const year = d.getFullYear();
@@ -362,9 +405,10 @@ function renderMonthCalendar(month, headingId, gridId, previousId, nextId, selec
         dayCell.appendChild(dayNumber);
 
         const events = scheduleList
-            .filter(event => event.isRoutine !== false
-                ? Number(event.day) === date.getDay()
-                : event.date === dateString)
+            .filter(event => isScheduleItemVisible(event)
+                && (isRoutine(event)
+                    ? getRoutineDays(event).includes(date.getDay())
+                    : event.date === dateString))
             .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 
         events.slice(0, 3).forEach(event => {
@@ -402,9 +446,10 @@ function getReadableTextColor(hexColor) {
 function getScheduleEventsForDate(dateString) {
     const date = new Date(`${dateString}T00:00:00`);
     return scheduleList
-        .filter(event => event.isRoutine !== false
-            ? Number(event.day) === date.getDay()
-            : event.date === dateString)
+        .filter(event => isScheduleItemVisible(event)
+            && (isRoutine(event)
+                ? getRoutineDays(event).includes(date.getDay())
+                : event.date === dateString))
         .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 }
 
@@ -433,6 +478,7 @@ function renderSelectedDaySchedule(headingId, containerId, dateString, canManage
         pl: 'Premier League',
         laliga: 'La Liga',
         f1: 'F1 Race',
+        google: 'Google Calendar',
         routine: 'Weekly routine',
         other: 'Activity'
     };
@@ -447,7 +493,7 @@ function renderSelectedDaySchedule(headingId, containerId, dateString, canManage
         const metadata = document.createElement('div');
         metadata.className = 'text-xs text-gray-500 mt-1';
         const eventType = typeLabels[event.type] || 'Activity';
-        const weeklyLabel = event.isRoutine !== false && event.type !== 'routine' ? ' · Weekly' : '';
+        const weeklyLabel = isRoutine(event) && event.type !== 'routine' ? ' · Weekly' : '';
         metadata.textContent = `${event.time || 'Time not set'} · ${eventType}${weeklyLabel}`;
         details.append(title, metadata);
         row.appendChild(details);
@@ -461,7 +507,7 @@ function renderSelectedDaySchedule(headingId, containerId, dateString, canManage
         icon.setAttribute('aria-hidden', 'true');
         row.insertBefore(icon, details);
 
-        if (canManage && event.id) {
+        if (canManage && event.id && !event.isReadOnly) {
             const actions = document.createElement('div');
             actions.className = 'flex shrink-0 items-center gap-2';
             const editButton = document.createElement('button');
@@ -742,6 +788,7 @@ async function refreshSharedData() {
 async function startDataSync() {
     cleanupListeners();
     await refreshSharedData();
+    if (currentUserRole === 'parent') await refreshGoogleCalendarStatus();
     dataRefreshInterval = setInterval(async () => {
         if (dataRefreshInProgress) return;
         dataRefreshInProgress = true;
@@ -754,6 +801,93 @@ async function startDataSync() {
         }
     }, 5000);
 }
+
+async function refreshGoogleCalendarStatus() {
+    const status = document.getElementById('google-calendar-status');
+    const connectButton = document.getElementById('google-calendar-connect');
+    const syncButton = document.getElementById('google-calendar-sync');
+    const disconnectButton = document.getElementById('google-calendar-disconnect');
+    if (!status || !connectButton || !syncButton) return;
+    try {
+        const result = await apiRequest('/api/google/status');
+        status.textContent = result.connected
+            ? 'Connected. Imported events are read-only.'
+            : 'Not connected. Paste a private iCal link to get started.';
+        connectButton.disabled = false;
+        syncButton.disabled = !result.connected;
+        disconnectButton.classList.toggle('hidden', !result.connected);
+    } catch (error) {
+        console.error('Could not check Google Calendar connection.', error);
+        status.textContent = 'Could not check Google Calendar connection.';
+        connectButton.disabled = true;
+        syncButton.disabled = true;
+        disconnectButton.classList.add('hidden');
+    }
+}
+
+document.getElementById('google-calendar-connect').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const input = document.getElementById('google-calendar-url');
+    if (!input.value.trim()) {
+        await showModal('Google Calendar link required', 'Paste the private iCal link from Google Calendar settings.', 'alert');
+        return;
+    }
+    button.disabled = true;
+    try {
+        await apiRequest('/api/google/connect', {
+            method: 'POST',
+            body: JSON.stringify({ url: input.value.trim() })
+        });
+        input.value = '';
+        await refreshGoogleCalendarStatus();
+        await showModal('Google Calendar connected', 'Use Sync now to import events from your calendar.', 'alert');
+    } catch (error) {
+        console.error('Could not save Google Calendar link.', error);
+        await showModal('Google Calendar link not saved', error.message || 'Could not save this link.', 'alert');
+    } finally {
+        button.disabled = false;
+    }
+});
+
+document.getElementById('google-calendar-disconnect').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+        await apiRequest('/api/google/disconnect', { method: 'POST' });
+        scheduleList = scheduleList.filter(item => item.source !== 'google-calendar-ical');
+        renderSchedule();
+        await refreshGoogleCalendarStatus();
+        document.getElementById('google-calendar-url').value = '';
+    } catch (error) {
+        console.error('Could not disconnect Google Calendar.', error);
+        await showModal('Error', error.message || 'Could not disconnect Google Calendar.', 'alert');
+    } finally {
+        button.disabled = false;
+    }
+});
+
+document.getElementById('google-calendar-sync').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = 'Syncing...';
+    try {
+        const result = await apiRequest('/api/google/sync', { method: 'POST' });
+        scheduleList = [
+            ...scheduleList.filter(item => item.source !== 'google-calendar-ical'
+                || item.date < result.startDate
+                || item.date >= result.endDate),
+            ...result.events
+        ];
+        renderSchedule();
+        await showModal('Google Calendar synced', `Imported ${result.eventCount} events.`, 'alert');
+    } catch (error) {
+        console.error('Could not sync Google Calendar events.', error);
+        await showModal('Google Calendar sync failed', error.message || 'Could not sync Google Calendar.', 'alert');
+    } finally {
+        button.textContent = 'Sync now';
+        button.disabled = false;
+    }
+});
 
 function cleanupListeners() {
     if (dataRefreshInterval) clearInterval(dataRefreshInterval);
