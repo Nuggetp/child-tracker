@@ -31,6 +31,13 @@ changing or redeploying the Render web service; the data is not stored on the
 web service's filesystem. Check Supabase's current free-tier limits and
 inactivity rules.
 
+## Install as an app
+
+The site includes a web app manifest and service worker. Open the deployed site
+over HTTPS, then use the browser's install or add-to-home-screen option. The app
+shell is available offline after its first successful load; shared data and
+other API features still require a network connection.
+
 ## Run locally
 
 Set `DATABASE_URL`, `PARENT_PIN`, `CHILD_PIN`, and `SESSION_SECRET` in the
