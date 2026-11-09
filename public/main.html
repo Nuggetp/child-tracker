@@ -46,6 +46,11 @@
         <div id="screen-parent"></div>
     </main>
 
+    <div id="login-loading" class="hidden fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-slate-900/70 text-white" role="status" aria-live="polite" aria-busy="true" aria-hidden="true">
+        <i class="fas fa-spinner fa-spin text-4xl" aria-hidden="true"></i>
+        <p class="text-lg font-semibold">Signing in and loading your calendar...</p>
+    </div>
+
     <!-- Application logic -->
     <script type="module" src="script.js"></script>
     <script>

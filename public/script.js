@@ -137,10 +137,12 @@ function showModal(title, msg, type = 'alert') {
         if (type === 'prompt') {
             modalInput.classList.remove('hidden');
             modalCancel.classList.remove('hidden');
+            modalOk.textContent = 'Enter';
             modalInput.focus();
         } else {
             modalInput.classList.add('hidden');
             modalCancel.classList.add('hidden');
+            modalOk.textContent = 'OK';
         }
 
         modal.classList.remove('hidden');
@@ -159,7 +161,7 @@ const scheduleStyles = {
     other: { color: '#10b981', icon: 'star' }
 };
 const availableScheduleIcons = new Set(['calendar-day', 'futbol', 'flag-checkered', 'car', 'book', 'star']);
-const scheduleVisibility = { weekly: true, sports: true, other: true };
+const scheduleVisibility = { weekly: true, sports: true, other: true, google: true };
 let editingScheduleItemId = null;
 
 function getScheduleStyle(item) {
@@ -311,6 +313,7 @@ function isRoutine(item) {
 }
 
 function getScheduleCategory(item) {
+    if (item.source === 'google-calendar-ical') return 'google';
     if (isRoutine(item)) return 'weekly';
     if (['pl', 'laliga', 'f1'].includes(item.type) || item.source?.startsWith('espn-') || item.source === 'jolpi-f1') {
         return 'sports';
@@ -873,9 +876,7 @@ document.getElementById('google-calendar-sync').addEventListener('click', async 
     try {
         const result = await apiRequest('/api/google/sync', { method: 'POST' });
         scheduleList = [
-            ...scheduleList.filter(item => item.source !== 'google-calendar-ical'
-                || item.date < result.startDate
-                || item.date >= result.endDate),
+            ...scheduleList.filter(item => item.source !== 'google-calendar-ical'),
             ...result.events
         ];
         renderSchedule();
@@ -921,12 +922,20 @@ modalOk.addEventListener('click', () => {
     if (modalResolve) modalResolve(val);
 });
 
+modalInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        modalOk.click();
+    }
+});
+
 // --- Login Events ---
 async function login(role) {
     const profileName = role === 'child' ? 'Child' : 'Parent';
     const pin = await showModal(`${profileName} Login`, `Enter ${profileName} PIN:`, 'prompt');
     if (pin === null) return;
 
+    setLoginLoading(true);
     try {
         await apiRequest('/api/login', {
             method: 'POST',
@@ -934,9 +943,11 @@ async function login(role) {
         });
         currentUserRole = role;
         await startDataSync();
+        setLoginLoading(false);
         showView(role === 'child' ? views.childDash : views.parentDash,
             `${profileName} Dashboard`, true, false);
     } catch (error) {
+        setLoginLoading(false);
         currentUserRole = null;
         cleanupListeners();
         console.error(`Could not log in as ${profileName.toLowerCase()}.`, error);
@@ -947,6 +958,13 @@ async function login(role) {
                 : 'Could not connect to shared storage. Please try again later.';
         await showModal('Login failed', message, 'alert');
     }
+}
+
+function setLoginLoading(isLoading) {
+    const overlay = document.getElementById('login-loading');
+    overlay.classList.toggle('hidden', !isLoading);
+    overlay.setAttribute('aria-hidden', String(!isLoading));
+    overlay.setAttribute('aria-busy', String(isLoading));
 }
 
 document.getElementById('login-child').addEventListener('click', () => login('child'));

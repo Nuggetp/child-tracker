@@ -206,9 +206,7 @@ async function handleGoogleRequest(request, response, requestUrl, role) {
             await client.query(
                 `DELETE FROM app_data
                  WHERE collection = 'schedule'
-                   AND data->>'source' = 'google-calendar-ical'
-                   AND data->>'date' >= $1 AND data->>'date' < $2`,
-                [startDate, endDate]
+                   AND data->>'source' = 'google-calendar-ical'`
             );
             for (const item of items) {
                 const { id, ...data } = item;

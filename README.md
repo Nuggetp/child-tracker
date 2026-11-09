@@ -53,8 +53,9 @@ also be assigned a color when created.
 Parents can add a comment to each existing daily log. The child sees the
 comment when opening today's log.
 
-Calendar views have filters for weekly events, sports, and specific events.
-Weekly routines can be assigned to any combination of weekdays.
+Calendar views have filters for weekly events, sports, specific events, and
+Google Calendar events. Weekly routines can be assigned to any combination of
+weekdays.
 
 Parents can import read-only events from Google Calendar without Google Cloud
 or OAuth setup. In Google Calendar settings, copy the calendar's private iCal
@@ -62,8 +63,9 @@ address, paste it into the parent calendar's **Private iCal link** field, and
 select **Save link**, then **Sync now**. The private link is stored in the
 PostgreSQL database and never returned to the browser after saving. Keep it
 secret; anyone with it may be able to read that calendar. Imported events are
-visible to both profiles. Sync reads events from Google and never writes to the
-Google Calendar.
+visible to both profiles. Each sync replaces all previously imported Google
+Calendar events with the latest feed contents. Sync reads events from Google
+and never writes to the Google Calendar.
 
 ## Run locally
 

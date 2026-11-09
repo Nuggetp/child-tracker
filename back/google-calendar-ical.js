@@ -234,7 +234,7 @@ function mapCalendarEvent(event, date) {
     if (!title) return null;
     const start = parseDateValue(event.DTSTART);
     const occurrenceDate = parseDateValue({ value: date.replaceAll('-', ''), parameters: { VALUE: 'DATE' } });
-    const identity = `${event.UID.value}\n${date}`;
+    const identity = `${event.UID.value}\n${event['RECURRENCE-ID']?.value || date}`;
     const id = `google-ical-${crypto.createHash('sha256').update(identity).digest('hex')}`;
     return {
         id,
@@ -256,13 +256,33 @@ function mapCalendarEvent(event, date) {
 function importCalendarEvents(calendarText, startDate, endDate) {
     const startNumber = Date.parse(`${startDate}T00:00:00Z`) / DAY_MS;
     const endNumber = Date.parse(`${endDate}T00:00:00Z`) / DAY_MS;
-    return parseCalendarEvents(calendarText).flatMap(event => {
+    const events = parseCalendarEvents(calendarText);
+    const overriddenOccurrences = new Set(events
+        .filter(event => event['RECURRENCE-ID'] && event.UID)
+        .map(event => {
+            const recurrenceDate = parseDateValue(event['RECURRENCE-ID'])?.date;
+            return recurrenceDate ? `${event.UID.value}\n${recurrenceDate}` : null;
+        })
+        .filter(Boolean));
+    const imported = new Map();
+
+    for (const event of events) {
         const start = parseDateValue(event.DTSTART);
-        if (!start) return [];
-        return getOccurrenceDates(event, startNumber, endNumber)
-            .map(date => mapCalendarEvent(event, date))
-            .filter(Boolean);
-    });
+        if (!start) continue;
+
+        const recurrenceId = event['RECURRENCE-ID'];
+        const dates = recurrenceId
+            ? [start.date]
+            : getOccurrenceDates(event, startNumber, endNumber)
+                .filter(date => !overriddenOccurrences.has(`${event.UID?.value}\n${date}`));
+        for (const date of dates) {
+            const dateNumber = Date.parse(`${date}T00:00:00Z`) / DAY_MS;
+            if (dateNumber < startNumber || dateNumber >= endNumber) continue;
+            const item = mapCalendarEvent(event, date);
+            if (item) imported.set(item.id, item);
+        }
+    }
+    return [...imported.values()];
 }
 
 module.exports = { fetchCalendarFeed, importCalendarEvents, validateCalendarUrl };
