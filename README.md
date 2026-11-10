@@ -3,6 +3,9 @@
 The browser app files are in `public/`, and the Node.js server is in `back/`.
 The root `package.json` and `package-lock.json` are kept at the project root so
 Render can install dependencies and start the service with `npm start`.
+Shared data is checked for changes once per minute while the app is visible;
+unchanged checks return only a revision instead of downloading every record.
+Opening the app or returning to its tab checks for updates immediately.
 
 ## Deploy with shared data on Render and Supabase
 

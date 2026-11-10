@@ -37,6 +37,7 @@ let calendarSelectedDate = getLocalDateString(new Date());
 let parentCalendarSelectedDate = calendarSelectedDate;
 let dataRefreshInterval = null;
 let dataRefreshInProgress = false;
+let sharedDataRevision = null;
 
 async function apiRequest(url, options = {}) {
     const response = await fetch(url, {
@@ -762,12 +763,18 @@ function renderParentSchedule() {
 
 // --- Shared database sync ---
 async function refreshSharedData() {
-    let data = await apiRequest('/api/data');
+    const dataUrl = sharedDataRevision === null
+        ? '/api/data'
+        : `/api/data?revision=${encodeURIComponent(sharedDataRevision)}`;
+    let data = await apiRequest(dataUrl);
+    if (data.unchanged) return;
+
     if (currentUserRole === 'child' && localStorage.getItem(LOCAL_MIGRATION_KEY) !== 'done') {
         await importLegacyDataIfNeeded();
         data = await apiRequest('/api/data');
     }
 
+    sharedDataRevision = data.revision;
     subjectsList = data.subjects || [];
     tasksList = (data.tasks || []).sort((a, b) => {
         if (a.completed === b.completed) return (a.timestamp || 0) - (b.timestamp || 0);
@@ -793,7 +800,7 @@ async function startDataSync() {
     await refreshSharedData();
     if (currentUserRole === 'parent') await refreshGoogleCalendarStatus();
     dataRefreshInterval = setInterval(async () => {
-        if (dataRefreshInProgress) return;
+        if (document.hidden || dataRefreshInProgress) return;
         dataRefreshInProgress = true;
         try {
             await refreshSharedData();
@@ -802,8 +809,20 @@ async function startDataSync() {
         } finally {
             dataRefreshInProgress = false;
         }
-    }, 5000);
+    }, 60000);
 }
+
+document.addEventListener('visibilitychange', async () => {
+    if (document.hidden || !currentUserRole || dataRefreshInProgress) return;
+    dataRefreshInProgress = true;
+    try {
+        await refreshSharedData();
+    } catch (error) {
+        console.error('Could not refresh shared data.', error);
+    } finally {
+        dataRefreshInProgress = false;
+    }
+});
 
 async function refreshGoogleCalendarStatus() {
     const status = document.getElementById('google-calendar-status');
@@ -875,11 +894,7 @@ document.getElementById('google-calendar-sync').addEventListener('click', async 
     button.textContent = 'Syncing...';
     try {
         const result = await apiRequest('/api/google/sync', { method: 'POST' });
-        scheduleList = [
-            ...scheduleList.filter(item => item.source !== 'google-calendar-ical'),
-            ...result.events
-        ];
-        renderSchedule();
+        await refreshSharedData();
         await showModal('Google Calendar synced', `Imported ${result.eventCount} events.`, 'alert');
     } catch (error) {
         console.error('Could not sync Google Calendar events.', error);

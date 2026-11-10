@@ -224,7 +224,7 @@ async function handleGoogleRequest(request, response, requestUrl, role) {
         } finally {
             client.release();
         }
-        sendJson(response, 200, { eventCount: items.length, events: items, startDate, endDate });
+        sendJson(response, 200, { eventCount: items.length, startDate, endDate });
         return;
     }
 
@@ -233,6 +233,13 @@ async function handleGoogleRequest(request, response, requestUrl, role) {
 
 async function handleDataRequest(request, response, requestUrl, role) {
     if (request.method === 'GET' && requestUrl.pathname === '/api/data') {
+        const revisionResult = await pool.query('SELECT revision FROM app_data_revision WHERE id = 1');
+        const revision = revisionResult.rows[0].revision;
+        if (requestUrl.searchParams.get('revision') === revision) {
+            sendJson(response, 200, { unchanged: true, revision });
+            return;
+        }
+
         const result = await pool.query('SELECT collection, id, data FROM app_data ORDER BY id');
         const data = Object.fromEntries([...allowedCollections].map(name => [name, name === 'settings' ? {} : []]));
         for (const row of result.rows) {
@@ -242,6 +249,7 @@ async function handleDataRequest(request, response, requestUrl, role) {
                 data[row.collection].push({ id: row.id, ...row.data });
             }
         }
+        data.revision = revision;
         sendJson(response, 200, data);
         return;
     }
@@ -604,6 +612,32 @@ async function startServer() {
         data JSONB NOT NULL,
         PRIMARY KEY (collection, id)
     )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS app_data_revision (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        revision BIGINT NOT NULL DEFAULT 0
+    )`);
+    await pool.query('INSERT INTO app_data_revision (id, revision) VALUES (1, 0) ON CONFLICT (id) DO NOTHING');
+    await pool.query(`CREATE OR REPLACE FUNCTION bump_app_data_revision()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            UPDATE app_data_revision SET revision = revision + 1 WHERE id = 1;
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql`);
+    await pool.query(`DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'app_data_revision_trigger'
+                  AND tgrelid = 'app_data'::regclass
+                  AND NOT tgisinternal
+            ) THEN
+                CREATE TRIGGER app_data_revision_trigger
+                    AFTER INSERT OR UPDATE OR DELETE ON app_data
+                    FOR EACH STATEMENT EXECUTE FUNCTION bump_app_data_revision();
+            END IF;
+        END;
+        $$`);
     await pool.query(`CREATE TABLE IF NOT EXISTS google_calendar_ical (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         calendar_url TEXT NOT NULL,
